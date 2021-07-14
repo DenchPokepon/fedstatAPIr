@@ -1,0 +1,29 @@
+Package: fedstatAPIr
+Title: Unofficial API for Fedstat (EMISS) for Automatic and Efficient Data Queries
+Version: 0.1
+Authors@R: 
+    person(given = "Denis",
+           family = "Krylov",
+	   role =c("aut", "cre"),
+           email = "deniskrylovvit@gmail.com")
+Description: This package makes it fairly easy to automatically download filtered data from fedstat.ru, using a small set of functions with a common interface.
+License: MIT + file LICENSE
+URL: https://github.com/DenchPokepon/fedstatAPIr
+BugReports: https://github.com/DenchPokepon/fedstatAPIr/issues
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.1
+Imports: 
+    httr,
+    rvest,
+    jsonlite,
+    stringr,
+    dplyr,
+    xml2,
+    readsdmx,
+    rsdmx,
+    magrittr,
+    utils,
+    rlang,
+    methods
