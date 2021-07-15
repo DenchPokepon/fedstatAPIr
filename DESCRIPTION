@@ -6,7 +6,7 @@ Authors@R:
            family = "Krylov",
 	   role =c("aut", "cre"),
            email = "deniskrylovvit@gmail.com")
-Description: This package makes it fairly easy to automatically download filtered data from fedstat.ru, using a small set of functions with a common interface.
+Description: An API for automatic data queries to the fedstat <https://www.fedstat.ru>, using a small set of functions with a common interface.
 License: MIT + file LICENSE
 URL: https://github.com/DenchPokepon/fedstatAPIr
 BugReports: https://github.com/DenchPokepon/fedstatAPIr/issues

@@ -1,4 +1,4 @@
-## First submission
+## Resubmission
 
 ## Test environments
 * ubuntu 20.04, R 4.1.0
@@ -7,13 +7,9 @@
 ## R CMD check results
 There were no ERRORs, WARNINGs.
 1 NOTE:
-    * checking CRAN incoming feasibility ... NOTE
-    Maintainer: ‘Denis Krylov <deniskrylovvit@gmail.com>’
-    
-    New submission
+> * checking CRAN incoming feasibility ... NOTE
+> Maintainer: ‘Denis Krylov <deniskrylovvit@gmail.com>’
+> New submission
 
-    The Description field should not start with the package name, 
-    'This package' or similar.
 
-Actually Description field doesn't start with the package name
 
