@@ -1,6 +1,6 @@
 Package: fedstatAPIr
 Title: Unofficial API for Fedstat (EMISS) for Automatic and Efficient Data Queries
-Version: 0.1
+Version: 0.1.0.9000
 Authors@R: 
     person(given = "Denis",
            family = "Krylov",
