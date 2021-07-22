@@ -4,7 +4,7 @@
 \alias{fedstat_data_ids_filter}
 \title{Filters \code{data_ids} based on \code{filters} that are given in JSON format}
 \usage{
-fedstat_data_ids_filter(data_ids, filters, disable_warnings = FALSE)
+fedstat_data_ids_filter(data_ids, filters = list(), disable_warnings = FALSE)
 }
 \arguments{
 \item{data_ids}{data.frame, result of \code{fedstat_get_data_ids}

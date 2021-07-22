@@ -34,6 +34,7 @@
 #'   to compare the equality of `data_ids` and `filters`
 #'
 #' @inheritParams fedstat_get_data_ids
+#' @param ... other arguments passed to httr::GET and httr::POST
 #' @inheritParams fedstat_data_ids_filter
 #' @inheritParams fedstat_get_data_ids_special_cases_handle
 #'
@@ -64,14 +65,16 @@
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
 fedstat_data_load_with_filters <- function(indicator_id,
-                                           filters,
+                                           ...,
+                                           filters = list(),
                                            filter_value_title_alias_lookup_table = data.frame(
                                              filter_value_title = character(),
                                              filter_value_title_alias = character()
                                            ),
                                            disable_warnings = FALSE,
-                                           httr_verbose = httr::verbose(data_out = FALSE)) {
-  data <- fedstat_get_data_ids(indicator_id, httr_verbose = httr_verbose) %>%
+                                           httr_verbose = httr::verbose(data_out = FALSE)
+                                           ) {
+  data <- fedstat_get_data_ids(indicator_id, ... = ..., httr_verbose = httr_verbose) %>%
     fedstat_get_data_ids_special_cases_handle(
       filter_value_title_alias_lookup_table = filter_value_title_alias_lookup_table
     ) %>%
@@ -79,7 +82,7 @@ fedstat_data_load_with_filters <- function(indicator_id,
       filters = filters,
       disable_warnings = disable_warnings
     ) %>%
-    fedstat_post_data_ids_filtered(httr_verbose = httr_verbose) %>%
+    fedstat_post_data_ids_filtered(... = ..., httr_verbose = httr_verbose) %>%
     fedstat_parse_sdmx_to_table()
 
   return(data)

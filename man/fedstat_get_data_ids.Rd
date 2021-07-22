@@ -6,6 +6,7 @@
 \usage{
 fedstat_get_data_ids(
   indicator_id,
+  ...,
   timeout_seconds = 180,
   retry_max_times = 3,
   httr_verbose = httr::verbose(data_out = FALSE)
@@ -14,6 +15,8 @@ fedstat_get_data_ids(
 \arguments{
 \item{indicator_id}{character, indicator id/code from indicator URL.
 For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426}
+
+\item{...}{other arguments passed to httr::GET}
 
 \item{timeout_seconds}{numeric, maximum time before a new GET request is tried}
 

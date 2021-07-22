@@ -74,7 +74,7 @@
 #' # In this example names for Far Eastern Federal District are latinized for CRAN
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
-fedstat_data_ids_filter <- function(data_ids, filters, disable_warnings = FALSE) {
+fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings = FALSE) {
   original_data_ids_columns_order <- names(data_ids)
 
   str_norm <- function(x) tolower(stringr::str_squish(x))

@@ -6,8 +6,7 @@
 \alias{fedstatAPIr-package}
 \title{Unofficial API for fedstat (EMISS) for automatic and efficient data queries}
 \description{
-This package makes it fairly easy to automatically download filtered data from fedstat.ru, 
-    using a small set of functions with a common interface.
+An API for automatic data queries to the fedstat <https://www.fedstat.ru>, using a small set of functions with a common interface.
 }
 \seealso{
 Useful links:

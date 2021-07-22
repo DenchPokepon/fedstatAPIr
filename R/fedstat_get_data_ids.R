@@ -36,6 +36,7 @@
 #'
 #' @param indicator_id character, indicator id/code from indicator URL.
 #'   For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426
+#' @param ... other arguments passed to httr::GET
 #' @param timeout_seconds numeric, maximum time before a new GET request is tried
 #' @param retry_max_times numeric, maximum number of tries to GET `data_ids`
 #' @param httr_verbose `httr::verbose()` or NULL, outputs messages to the console
@@ -65,9 +66,11 @@
 #' data_ids <- fedstat_get_indicator_data_ids("37426")
 #' }
 fedstat_get_data_ids <- function(indicator_id,
+                                 ...,
                                  timeout_seconds = 180,
                                  retry_max_times = 3,
-                                 httr_verbose = httr::verbose(data_out = FALSE)) {
+                                 httr_verbose = httr::verbose(data_out = FALSE)
+                                 ) {
   java_script_source_code_with_data_ids_html_node_index <- 12 # Empirically determined value,
   # on the fedstat, this node with java script source code with filter ids in it does not have any attributes, id or classes
 
@@ -78,7 +81,8 @@ fedstat_get_data_ids <- function(indicator_id,
     indicator_URL,
     httr_verbose,
     httr::timeout(timeout_seconds),
-    times = retry_max_times
+    times = retry_max_times,
+    ... = ...
   )
 
   if (httr::http_error(GET_res)) {

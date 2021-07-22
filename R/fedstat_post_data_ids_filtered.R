@@ -12,6 +12,7 @@
 #' @param data_ids data.frame, can be a result of `fedstat_get_data_ids` or
 #'   `fedstat_get_data_ids_special_cases_handle` to download all available data,
 #'   or a result of `fedstat_data_ids_filter` to download subset of available data
+#' @param ... other arguments passed to httr::POST
 #' @param data_format string, one of sdmx, excel
 #' @param timeout_seconds numeric, maximum time before a new POST request is tried
 #' @param retry_max_times numeric, maximum number of tries to POST `data_ids`
@@ -53,10 +54,12 @@
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
 fedstat_post_data_ids_filtered <- function(data_ids,
+                                           ...,
                                            data_format = c("sdmx", "excel"),
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
-                                           httr_verbose = httr::verbose(data_out = FALSE)) {
+                                           httr_verbose = httr::verbose(data_out = FALSE)
+                                           ) {
   data_format <- match.arg(data_format, data_format)
   POST_URL <- paste0(fedstat_URL_base(), "/indicator/data.do?format=", data_format)
   filter_field <- "selectedFilterIds"
@@ -104,7 +107,8 @@ fedstat_post_data_ids_filtered <- function(data_ids,
     httr_verbose,
     httr::timeout(timeout_seconds),
     times = retry_max_times,
-    body = POST_body
+    body = POST_body,
+    ... = ...
   )
 
   if (httr::http_error(POST_res)) {

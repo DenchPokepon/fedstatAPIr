@@ -6,6 +6,7 @@
 \usage{
 fedstat_post_data_ids_filtered(
   data_ids,
+  ...,
   data_format = c("sdmx", "excel"),
   timeout_seconds = 180,
   retry_max_times = 3,
@@ -16,6 +17,8 @@ fedstat_post_data_ids_filtered(
 \item{data_ids}{data.frame, can be a result of \code{fedstat_get_data_ids} or
 \code{fedstat_get_data_ids_special_cases_handle} to download all available data,
 or a result of \code{fedstat_data_ids_filter} to download subset of available data}
+
+\item{...}{other arguments passed to httr::POST}
 
 \item{data_format}{string, one of sdmx, excel}
 

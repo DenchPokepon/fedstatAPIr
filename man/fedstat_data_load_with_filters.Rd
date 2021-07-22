@@ -6,7 +6,8 @@
 \usage{
 fedstat_data_load_with_filters(
   indicator_id,
-  filters,
+  ...,
+  filters = list(),
   filter_value_title_alias_lookup_table = data.frame(filter_value_title = character(),
     filter_value_title_alias = character()),
   disable_warnings = FALSE,
@@ -16,6 +17,8 @@ fedstat_data_load_with_filters(
 \arguments{
 \item{indicator_id}{character, indicator id/code from indicator URL.
 For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426}
+
+\item{...}{other arguments passed to httr::GET and httr::POST}
 
 \item{filters}{JSON in R list form. The structure should be like this:
 
