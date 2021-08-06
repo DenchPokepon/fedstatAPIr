@@ -69,8 +69,7 @@ fedstat_get_data_ids <- function(indicator_id,
                                  ...,
                                  timeout_seconds = 180,
                                  retry_max_times = 3,
-                                 httr_verbose = httr::verbose(data_out = FALSE)
-                                 ) {
+                                 httr_verbose = httr::verbose(data_out = FALSE)) {
   java_script_source_code_with_data_ids_html_node_index <- 12 # Empirically determined value,
   # on the fedstat, this node with java script source code with filter ids in it does not have any attributes, id or classes
 

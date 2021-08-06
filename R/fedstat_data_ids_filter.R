@@ -81,41 +81,10 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   str_norm <- function(x) tolower(stringr::str_squish(x))
 
-  replace_str_norm_with_original <- function(data_ids_or_filters, lookup_table) {
-    title <- stringr::str_subset(names(lookup_table), "\\.str_norm", negate = TRUE)
-    title.str_norm <- paste0(title, ".str_norm")
-
-    data_ids_or_filters_copy <- data_ids_or_filters
-
-    names(data_ids_or_filters_copy)[
-      names(data_ids_or_filters_copy) == title
-    ] <- title.str_norm
-
-    result <- data_ids_or_filters_copy %>%
-      dplyr::left_join(lookup_table,
-        by = title.str_norm
-      ) %>%
-      dplyr::select(-dplyr::all_of(title.str_norm))
-
-    return(result)
-  }
-
-  data_ids_norm_filter_field_title <- data_ids %>%
-    dplyr::distinct(.data[["filter_field_title"]]) %>%
-    dplyr::mutate(
-      filter_field_title.str_norm = str_norm(.data[["filter_field_title"]])
-    )
-
-  data_ids_norm_filter_value_title <- data_ids %>%
-    dplyr::distinct(.data[["filter_value_title"]]) %>%
-    dplyr::mutate(
-      filter_value_title.str_norm = str_norm(.data[["filter_value_title"]])
-    )
-
   data_ids_norm <- data_ids %>%
     dplyr::mutate(
-      filter_field_title = str_norm(.data[["filter_field_title"]]),
-      filter_value_title = str_norm(.data[["filter_value_title"]])
+      filter_field_title.str_norm = str_norm(.data[["filter_field_title"]]),
+      filter_value_title.str_norm = str_norm(.data[["filter_value_title"]])
     )
 
   indicator_id_and_title <- data_ids[
@@ -145,30 +114,17 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
     filter_value_title = unlist(filters_added_indicator_title, use.names = FALSE)
   )
 
-
-  filters_data_frame_norm_filter_field_title <- filters_data_frame %>%
-    dplyr::distinct(.data[["filter_field_title"]]) %>%
-    dplyr::mutate(
-      filter_field_title.str_norm = str_norm(.data[["filter_field_title"]])
-    )
-
-  filters_data_frame_norm_filter_value_title <- filters_data_frame %>%
-    dplyr::distinct(.data[["filter_value_title"]]) %>%
-    dplyr::mutate(
-      filter_value_title.str_norm = str_norm(.data[["filter_value_title"]])
-    )
-
   filters_data_frame_norm <- filters_data_frame %>%
     dplyr::mutate(
-      filter_field_title = str_norm(.data[["filter_field_title"]]),
-      filter_value_title = str_norm(.data[["filter_value_title"]])
+      filter_field_title.str_norm = str_norm(.data[["filter_field_title"]]),
+      filter_value_title.str_norm = str_norm(.data[["filter_value_title"]])
     )
-
 
   data_ids_norm_unique_filters <- dplyr::distinct(
     data_ids_norm,
     .data[["filter_field_id"]],
-    .data[["filter_field_title"]]
+    .data[["filter_field_title"]],
+    .data[["filter_field_title.str_norm"]]
   )
 
   data_ids_norm_one_value_only_filters <- data_ids_norm %>%
@@ -178,64 +134,50 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   filters_data_frame_norm_added_filters_ids <- filters_data_frame_norm %>%
     dplyr::left_join(
-      data_ids_norm_unique_filters,
-      by = c("filter_field_title" = "filter_field_title")
+      dplyr::select(
+        data_ids_norm_unique_filters,
+        dplyr::all_of(c("filter_field_title.str_norm", "filter_field_id"))
+      ),
+      by = c("filter_field_title.str_norm" = "filter_field_title.str_norm")
     )
 
   ## End of preparations
+
+  no_match_filter_values <- dplyr::filter(
+    dplyr::setdiff(
+      dplyr::select(
+        filters_data_frame_norm_added_filters_ids,
+        dplyr::all_of(c("filter_field_title.str_norm", "filter_value_title.str_norm"))
+      ),
+      dplyr::select(
+        data_ids_norm,
+        dplyr::all_of(c("filter_field_title.str_norm", "filter_value_title.str_norm"))
+      )
+    ),
+    .data[["filter_value_title.str_norm"]] != "*"
+  )
 
   if (any(is.na(filters_data_frame_norm_added_filters_ids[["filter_field_id"]]))) {
     stop(
       "These filters are named incorrectly or do not exist: ",
       paste(
         unique(
-          replace_str_norm_with_original(
-            dplyr::filter(
-              filters_data_frame_norm_added_filters_ids,
-              is.na(.data[["filter_field_id"]])
-            ),
-            filters_data_frame_norm_filter_field_title
+          dplyr::filter(
+            filters_data_frame_norm_added_filters_ids,
+            is.na(.data[["filter_field_id"]])
           )[["filter_field_title"]]
         ),
         collapse = ", "
       )
     )
-  } else if (nrow(
-    dplyr::filter(
-      dplyr::setdiff(
-        dplyr::select(
-          filters_data_frame_norm_added_filters_ids,
-          dplyr::all_of(c("filter_field_title", "filter_value_title"))
-        ),
-        dplyr::select(
-          data_ids_norm,
-          dplyr::all_of(c("filter_field_title", "filter_value_title"))
-        )
-      ),
-      .data[["filter_value_title"]] != "*"
-    )
-  ) && !disable_warnings
+  } else if (nrow(no_match_filter_values) && !disable_warnings
   ) {
     warning(
       "No matching filter values were found in the data_ids for the following filter values: \n",
-      replace_str_norm_with_original(
-        replace_str_norm_with_original(
-          dplyr::filter(
-            dplyr::setdiff(
-              dplyr::select(
-                filters_data_frame_norm_added_filters_ids,
-                dplyr::all_of(c("filter_field_title", "filter_value_title"))
-              ),
-              dplyr::select(
-                data_ids_norm,
-                dplyr::all_of(c("filter_field_title", "filter_value_title"))
-              )
-            ),
-            .data[["filter_value_title"]] != "*"
-          ),
-          filters_data_frame_norm_filter_field_title
-        ),
-        filters_data_frame_norm_filter_value_title
+      dplyr::filter(
+        filters_data_frame_norm_added_filters_ids,
+        .data[["filter_field_title.str_norm"]] %in% no_match_filter_values[["filter_field_title.str_norm"]]
+        & .data[["filter_value_title.str_norm"]] %in% no_match_filter_values[["filter_value_title.str_norm"]]
       ) %>%
         dplyr::group_by(.data[["filter_field_title"]]) %>%
         dplyr::summarise(
@@ -259,8 +201,10 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   # possible invalid specification of filter_value_title for these filter_fields_titles from user
   filters_data_frame_norm_added_filters_ids_added_missing_filters <-
     filters_data_frame_norm_added_filters_ids %>%
-    dplyr::filter(!(.data[["filter_field_id"]]
-    %in% data_ids_norm_one_value_only_filters[["filter_field_id"]])) %>%
+    dplyr::filter(
+      !(.data[["filter_field_id"]]
+      %in% data_ids_norm_one_value_only_filters[["filter_field_id"]])
+    ) %>%
     dplyr::mutate(filters_specified_by_user = TRUE) %>%
     rbind.data.frame(
       dplyr::mutate(
@@ -269,6 +213,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
           by = c("filter_field_id" = "filter_field_id")
         ),
         filter_value_title = "*",
+        filter_value_title.str_norm = "*",
         filters_specified_by_user = FALSE
       )
     )
@@ -286,12 +231,11 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
     warning(
       "The following filter fields were not specified in filters: ",
       paste(
-        replace_str_norm_with_original(
-          filters_data_frame_norm_added_filters_ids_added_missing_filters[
-            unspecified_filter_fields,
-          ],
-          data_ids_norm_filter_field_title
-        )[["filter_field_title"]],
+        filters_data_frame_norm_added_filters_ids_added_missing_filters[
+          unspecified_filter_fields,
+          "filter_field_title",
+          drop = TRUE
+        ],
         collapse = ", "
       ),
       "\nUsing all possible filter values for these filter fields",
@@ -325,13 +269,26 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
       .data[["filter_field_id"]] == i
     )
 
-    if (nrow(filters_for_i) == 1 && filters_for_i[["filter_value_title"]][1] == "*") {
+    if (any(filters_for_i[["filter_value_title"]] == "*") && nrow(filters_for_i) != 1) {
+      stop(
+        "Special value for ",
+        unique(
+          dplyr::filter(
+            filters_data_frame_norm_added_filters_ids,
+            .data[["filter_field_id"]] == i
+          )[["filter_field_title"]]
+        ),
+        " field is in a filter vector of length greater than 1"
+      )
+    }
+
+    if (filters_for_i[["filter_value_title"]][1] == "*") {
       data_ids_norm_filtered_list[[i]] <- data_ids_norm_for_i
     } else {
       data_ids_norm_filtered_list[[i]] <- dplyr::filter(
         data_ids_norm_for_i,
-        .data[["filter_value_title"]]
-        %in% filters_for_i[["filter_value_title"]]
+        .data[["filter_value_title.str_norm"]]
+        %in% filters_for_i[["filter_value_title.str_norm"]]
       )
     }
   }
@@ -343,16 +300,15 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   if (any(empty_data_ids_norm_filtered)) {
     stop(
-      "No values were found for filters: ",
+      "No filter values were found for filters fields: ",
       paste(
-        replace_str_norm_with_original(
+        unique(
           dplyr::filter(
-            data_ids_norm_unique_filters,
+            filters_data_frame_norm_added_filters_ids,
             .data[["filter_field_id"]]
             %in% names(data_ids_norm_filtered_list)[empty_data_ids_norm_filtered]
-          ),
-          data_ids_norm_filter_field_title
-        )[["filter_field_title"]],
+          )[["filter_field_title"]]
+        ),
         collapse = ", "
       )
     )
@@ -361,9 +317,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   data_ids_norm_filtered_data_frame <- do.call(
     rbind,
     c(data_ids_norm_filtered_list, make.row.names = FALSE)
-  ) %>%
-    replace_str_norm_with_original(data_ids_norm_filter_field_title) %>%
-    replace_str_norm_with_original(data_ids_norm_filter_value_title)
+  )
 
 
   return(data_ids_norm_filtered_data_frame[original_data_ids_columns_order])

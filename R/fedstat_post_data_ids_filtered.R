@@ -58,8 +58,7 @@ fedstat_post_data_ids_filtered <- function(data_ids,
                                            data_format = c("sdmx", "excel"),
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
-                                           httr_verbose = httr::verbose(data_out = FALSE)
-                                           ) {
+                                           httr_verbose = httr::verbose(data_out = FALSE)) {
   data_format <- match.arg(data_format, data_format)
   POST_URL <- paste0(FEDSTAT_URL_BASE, "/indicator/data.do?format=", data_format)
   filter_field <- "selectedFilterIds"

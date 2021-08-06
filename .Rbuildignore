@@ -5,3 +5,5 @@
 ^cran-comments\.md$
 .+\.Rcheck$
 .*\.tar\.gz$
+.*\.xlsx$
+^filter_titles_aliases\.R$
