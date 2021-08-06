@@ -74,7 +74,7 @@ fedstat_get_data_ids <- function(indicator_id,
   java_script_source_code_with_data_ids_html_node_index <- 12 # Empirically determined value,
   # on the fedstat, this node with java script source code with filter ids in it does not have any attributes, id or classes
 
-  indicator_URL <- paste(fedstat_URL_base(), "indicator", indicator_id, sep = "/")
+  indicator_URL <- paste(FEDSTAT_URL_BASE, "indicator", indicator_id, sep = "/")
 
   GET_res <- httr::RETRY(
     "GET",
@@ -108,7 +108,7 @@ fedstat_get_data_ids <- function(indicator_id,
   java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]] <- c(
     java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]],
     "0"
-  )
+  ) # Add special filterObjectIds (indicator id)
 
   object_ids_filters <- unlist(java_script_default_data_ids_object_ids_json_parsed, use.names = TRUE) %>%
     `names<-`(stringr::str_remove(names(.), "\\d")) %>% # use.names makes unique names (adds numbers for duplicates), but we don't need this
@@ -145,8 +145,4 @@ fedstat_get_data_ids <- function(indicator_id,
     )
 
   return(data_ids_data_frame_with_object_filters)
-}
-
-fedstat_URL_base <- function() {
-  return("https://www.fedstat.ru")
 }

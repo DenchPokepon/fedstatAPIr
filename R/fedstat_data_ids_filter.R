@@ -75,6 +75,8 @@
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
 fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings = FALSE) {
+
+  ## Preparations
   original_data_ids_columns_order <- names(data_ids)
 
   str_norm <- function(x) tolower(stringr::str_squish(x))
@@ -138,7 +140,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   filters_data_frame <- data.frame(
     filter_field_title = rep(
       names(filters_added_indicator_title),
-      sapply(filters_added_indicator_title, length)
+      sapply(filters_added_indicator_title, length, simplify = TRUE)
     ),
     filter_value_title = unlist(filters_added_indicator_title, use.names = FALSE)
   )
@@ -171,7 +173,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   data_ids_norm_one_value_only_filters <- data_ids_norm %>%
     dplyr::group_by(.data[["filter_field_id"]]) %>%
-    dplyr::filter(dplyr::n() == 1) %>%
+    dplyr::filter(dplyr::n() == 1L) %>%
     dplyr::ungroup()
 
   filters_data_frame_norm_added_filters_ids <- filters_data_frame_norm %>%
@@ -179,6 +181,8 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
       data_ids_norm_unique_filters,
       by = c("filter_field_title" = "filter_field_title")
     )
+
+  ## End of preparations
 
   if (any(is.na(filters_data_frame_norm_added_filters_ids[["filter_field_id"]]))) {
     stop(
@@ -252,7 +256,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   }
 
   # We remove one possible value only filters from filters argument to avoid
-  # invalid specification of filter_value_title for these filter_fields_titles from user
+  # possible invalid specification of filter_value_title for these filter_fields_titles from user
   filters_data_frame_norm_added_filters_ids_added_missing_filters <-
     filters_data_frame_norm_added_filters_ids %>%
     dplyr::filter(!(.data[["filter_field_id"]]

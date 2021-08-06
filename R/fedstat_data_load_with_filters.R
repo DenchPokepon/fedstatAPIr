@@ -72,18 +72,27 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                              filter_value_title_alias = character()
                                            ),
                                            disable_warnings = FALSE,
-                                           httr_verbose = httr::verbose(data_out = FALSE)
-                                           ) {
-  data <- fedstat_get_data_ids(indicator_id, ... = ..., httr_verbose = httr_verbose) %>%
-    fedstat_get_data_ids_special_cases_handle(
-      filter_value_title_alias_lookup_table = filter_value_title_alias_lookup_table
-    ) %>%
-    fedstat_data_ids_filter(
-      filters = filters,
-      disable_warnings = disable_warnings
-    ) %>%
-    fedstat_post_data_ids_filtered(... = ..., httr_verbose = httr_verbose) %>%
-    fedstat_parse_sdmx_to_table()
+                                           httr_verbose = httr::verbose(data_out = FALSE)) {
+  data_ids <- fedstat_get_data_ids(indicator_id, ... = ..., httr_verbose = httr_verbose)
 
-  return(data)
+  data_ids_special_cases_handled <- fedstat_get_data_ids_special_cases_handle(
+    data_ids = data_ids,
+    filter_value_title_alias_lookup_table = filter_value_title_alias_lookup_table
+  )
+
+  data_ids_special_cases_handled_filtered <- fedstat_data_ids_filter(
+    data_ids = data_ids_special_cases_handled,
+    filters = filters,
+    disable_warnings = disable_warnings
+  )
+
+  data_raw <- fedstat_post_data_ids_filtered(
+    data_ids = data_ids,
+    ... = ...,
+    httr_verbose = httr_verbose
+  )
+
+  data_data_frame <- fedstat_parse_sdmx_to_table(data_raw = data_raw)
+
+  return(data_data_frame)
 }

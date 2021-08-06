@@ -61,7 +61,7 @@ fedstat_post_data_ids_filtered <- function(data_ids,
                                            httr_verbose = httr::verbose(data_out = FALSE)
                                            ) {
   data_format <- match.arg(data_format, data_format)
-  POST_URL <- paste0(fedstat_URL_base(), "/indicator/data.do?format=", data_format)
+  POST_URL <- paste0(FEDSTAT_URL_BASE, "/indicator/data.do?format=", data_format)
   filter_field <- "selectedFilterIds"
 
   indicator_id_and_title <- data_ids[
