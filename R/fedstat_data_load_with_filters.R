@@ -36,6 +36,8 @@
 #' @inheritParams fedstat_get_data_ids
 #' @param ... other arguments passed to httr::GET and httr::POST
 #' @inheritParams fedstat_data_ids_filter
+#' @param timeout_seconds numeric, maximum time before a new GET and POST request is tried
+#' @param retry_max_times numeric, maximum number of tries to GET and POST `data_ids`
 #' @inheritParams fedstat_get_data_ids_special_cases_handle
 #'
 #' @return data.frame with filtered indicator data from fedstat.ru
@@ -71,9 +73,17 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                              filter_value_title = character(),
                                              filter_value_title_alias = character()
                                            ),
+                                           timeout_seconds = 180,
+                                           retry_max_times = 3,
                                            disable_warnings = FALSE,
                                            httr_verbose = httr::verbose(data_out = FALSE)) {
-  data_ids <- fedstat_get_data_ids(indicator_id, ... = ..., httr_verbose = httr_verbose)
+  data_ids <- fedstat_get_data_ids(
+    indicator_id,
+    ... = ...,
+    timeout_seconds = timeout_seconds,
+    retry_max_times = retry_max_times,
+    httr_verbose = httr_verbose
+  )
 
   data_ids_special_cases_handled <- fedstat_get_data_ids_special_cases_handle(
     data_ids = data_ids,
@@ -89,6 +99,8 @@ fedstat_data_load_with_filters <- function(indicator_id,
   data_raw <- fedstat_post_data_ids_filtered(
     data_ids = data_ids,
     ... = ...,
+    timeout_seconds = timeout_seconds,
+    retry_max_times = retry_max_times,
     httr_verbose = httr_verbose
   )
 

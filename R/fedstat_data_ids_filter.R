@@ -132,6 +132,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
     dplyr::filter(dplyr::n() == 1L) %>%
     dplyr::ungroup()
 
+
   filters_data_frame_norm_added_filters_ids <- filters_data_frame_norm %>%
     dplyr::left_join(
       dplyr::select(
