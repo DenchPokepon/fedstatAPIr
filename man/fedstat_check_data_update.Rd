@@ -2,7 +2,7 @@
 % Please edit documentation in R/fedstat_check_data_update.R
 \name{fedstat_check_data_update}
 \alias{fedstat_check_data_update}
-\title{Very basic task scheduler for checking the indicator data updates}
+\title{Very basic task scheduler for checking the indicator data updates (EXPERIMENTAL)}
 \usage{
 fedstat_check_data_update(
   prepared_reference_data_for_check_data_update,
@@ -47,7 +47,7 @@ about the processing of the request}
 bool, TRUE if indicator data has been updated, FALSE if max_checks is exceeded
 }
 \description{
-Unfortunately, in practice fedstat often does not give true
+In practice fedstat often does not give true
 information about when the data was updated. Because of this,
 the only universal and accurate way to check for updated data is to try to
 download it and compare it to past data. If a query with the same filters

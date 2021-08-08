@@ -51,9 +51,9 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
                                       disable_warnings = FALSE,
                                       httr_verbose = NULL) {
 
-  # if (pause_minutes_between_requests < 10) {
-  #   stop("pause_minutes_between_requests cannot be less than 10 minutes to avoid a heavy load on the fedstat.ru")
-  # }
+  if (pause_minutes_between_requests < 10) {
+    stop("pause_minutes_between_requests cannot be less than 10 minutes to avoid a heavy load on the fedstat.ru")
+  }
 
   indicator_id <- prepared_reference_data_for_check_data_update[["indicator_id"]]
   filters <- prepared_reference_data_for_check_data_update[["filters"]]
