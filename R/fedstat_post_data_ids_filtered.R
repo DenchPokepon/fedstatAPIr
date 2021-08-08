@@ -100,24 +100,29 @@ fedstat_post_data_ids_filtered <- function(data_ids,
     data_ids_filtered_POST_body
   )
 
-  POST_res <- httr::RETRY(
-    "POST",
-    POST_URL,
-    httr_verbose,
-    httr::timeout(timeout_seconds),
-    times = retry_max_times,
-    body = POST_body,
-    ... = ...
+  POST_res <- tryCatch(
+    expr = httr::RETRY(
+      "POST",
+      POST_URL,
+      httr_verbose,
+      httr::timeout(timeout_seconds),
+      times = retry_max_times,
+      body = POST_body,
+      ... = ...
+    ),
+    error = function(cond) {
+      if (cond[["call"]] == str2lang("f(init, x[[i]])")
+      && cond[["message"]] == "is.request(y) is not TRUE") {
+        stop("Passed invalid arguments to ... argument",
+          "did you accidentally passed filters to ...?",
+          "All arguments after ... must be explicitly named",
+          call. = FALSE
+        )
+      } else {
+        stop(cond)
+      }
+    }
   )
-
-  if (httr::http_error(POST_res)) {
-    httr::http_condition(POST_res, type = "error")
-  } else if (!(POST_res[["headers"]][["content-type"]]
-  %in% c("text/xml", "application/vnd.ms-excel"))) {
-    stop(
-      "No data found with specified filters"
-    )
-  }
 
   return(POST_res[["content"]])
 }

@@ -75,13 +75,26 @@ fedstat_get_data_ids <- function(indicator_id,
 
   indicator_URL <- paste(FEDSTAT_URL_BASE, "indicator", indicator_id, sep = "/")
 
-  GET_res <- httr::RETRY(
-    "GET",
-    indicator_URL,
-    httr_verbose,
-    httr::timeout(timeout_seconds),
-    times = retry_max_times,
-    ... = ...
+  GET_res <- tryCatch(
+    expr = httr::RETRY(
+      "GET",
+      indicator_URL,
+      httr_verbose,
+      httr::timeout(timeout_seconds),
+      times = retry_max_times,
+      ... = ...
+    ),
+    error = function(cond) {
+      if (cond[["call"]] == str2lang("f(init, x[[i]])")
+      && cond[["message"]] == "is.request(y) is not TRUE") {
+        stop("Passed invalid arguments to ... argument" ,
+        "did you accidentally passed filters to ...?",
+        "All arguments after ... must be explicitly named",
+        call. = FALSE)
+      } else {
+        stop(cond)
+      }
+    }
   )
 
   if (httr::http_error(GET_res)) {
