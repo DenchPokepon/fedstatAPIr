@@ -71,7 +71,8 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            filters = list(),
                                            filter_value_title_alias_lookup_table = data.frame(
                                              filter_value_title = character(),
-                                             filter_value_title_alias = character()
+                                             filter_value_title_alias = character(),
+                                             stringsAsFactors = FALSE
                                            ),
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
@@ -97,7 +98,7 @@ fedstat_data_load_with_filters <- function(indicator_id,
   )
 
   data_raw <- fedstat_post_data_ids_filtered(
-    data_ids = data_ids,
+    data_ids = data_ids_special_cases_handled_filtered,
     ... = ...,
     timeout_seconds = timeout_seconds,
     retry_max_times = retry_max_times,

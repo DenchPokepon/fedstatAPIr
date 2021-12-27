@@ -31,8 +31,7 @@
 #' but their incorrect specification will lead either to incomplete data loading or to no data at all.
 #' For the excel format, these ids determine the form of data presentation, as in the data preview on the fedstat site.
 #' For now only default filter_field_object_ids are used, which are parsed from java script source code on indicator web page.
-#' In theory, it is possible to let the user specify filter_field_object_ids himself,
-#' but this will add unnecessary complexity and room for errors on the user side.
+#' Users can specify filter_field_object_ids for each filter_field in resulting data_ids table.
 #'
 #' @param indicator_id character, indicator id/code from indicator URL.
 #'   For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426
@@ -75,6 +74,8 @@ fedstat_get_data_ids <- function(indicator_id,
 
   indicator_URL <- paste(FEDSTAT_URL_BASE, "indicator", indicator_id, sep = "/")
 
+  indicator_id <- as.character(indicator_id)
+
   GET_res <- tryCatch(
     expr = httr::RETRY(
       "GET",
@@ -87,10 +88,11 @@ fedstat_get_data_ids <- function(indicator_id,
     error = function(cond) {
       if (cond[["call"]] == str2lang("f(init, x[[i]])")
       && cond[["message"]] == "is.request(y) is not TRUE") {
-        stop("Passed invalid arguments to ... argument" ,
-        "did you accidentally passed filters to ...?",
-        "All arguments after ... must be explicitly named",
-        call. = FALSE)
+        stop("Passed invalid arguments to ... argument, ",
+          "did you accidentally passed filters to ...? ",
+          "All arguments after ... must be explicitly named",
+          call. = FALSE
+        )
       } else {
         stop(cond)
       }
@@ -117,17 +119,21 @@ fedstat_get_data_ids <- function(indicator_id,
     java_script_source_code_with_data_ids
   )
 
-  java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]] <- c(
-    java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]],
-    "0"
-  ) # Add special filterObjectIds (indicator id)
+  if (all(unlist(java_script_default_data_ids_object_ids_json_parsed) != 0)) {
+    java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]] <- c(
+      java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]],
+      "0"
+    ) # Add special filterObjectIds (indicator id)
+  }
+
 
   object_ids_filters <- unlist(java_script_default_data_ids_object_ids_json_parsed, use.names = TRUE) %>%
     `names<-`(stringr::str_remove(names(.), "\\d")) %>% # use.names makes unique names (adds numbers for duplicates), but we don't need this
     data.frame(
       "filter_field_id" = .,
       "filter_field_object_ids" = names(.),
-      "filter_field_object_ids_order" = seq(1, length(.))
+      "filter_field_object_ids_order" = seq_len(length(.)),
+      stringsAsFactors = FALSE
     )
 
   indicator_title <- java_script_data_ids_json_parsed[["0"]][["values"]][[indicator_id]][["title"]]
@@ -137,6 +143,13 @@ fedstat_get_data_ids <- function(indicator_id,
   for (i in seq_len(length(java_script_data_ids_json_parsed))) {
     filter_field_id <- names(java_script_data_ids_json_parsed)[i]
 
+    if (!length(names(java_script_data_ids_json_parsed[[filter_field_id]][["values"]]))) {
+      stop(
+        "fedstat returned erroneous data_ids. It's probably lagging. There are no filter values in the \"",
+        java_script_data_ids_json_parsed[[filter_field_id]][["title"]], "\" filter "
+      )
+    }
+
     data_ids_list[[i]] <- data.frame(
       "filter_field_id" = filter_field_id,
       "filter_field_title" = java_script_data_ids_json_parsed[[filter_field_id]][["title"]],
@@ -144,7 +157,8 @@ fedstat_get_data_ids <- function(indicator_id,
       "filter_value_title" = unlist(lapply(
         java_script_data_ids_json_parsed[[filter_field_id]][["values"]],
         function(x) x[["title"]]
-      ))
+      )),
+      stringsAsFactors = FALSE
     )
   }
 
@@ -155,6 +169,14 @@ fedstat_get_data_ids <- function(indicator_id,
     dplyr::left_join(object_ids_filters,
       by = c("filter_field_id" = "filter_field_id")
     )
+
+  if (nrow(data_ids_data_frame_with_object_filters) !=
+    nrow(dplyr::distinct(
+      data_ids_data_frame_with_object_filters,
+      .data[["filter_field_id"]], .data[["filter_value_id"]]
+    ))) {
+    stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")
+  }
 
   return(data_ids_data_frame_with_object_filters)
 }

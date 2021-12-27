@@ -45,7 +45,8 @@
 fedstat_get_data_ids_special_cases_handle <- function(data_ids,
                                                       filter_value_title_alias_lookup_table = data.frame(
                                                         "filter_value_title" = character(),
-                                                        "filter_value_title_alias" = character()
+                                                        "filter_value_title_alias" = character(),
+                                                        stringsAsFactors = FALSE
                                                       )) {
   data_ids_special_cases_handled <- data_ids %>%
     dplyr::left_join(filter_value_title_alias_lookup_table,
@@ -58,17 +59,11 @@ fedstat_get_data_ids_special_cases_handle <- function(data_ids,
 
 
   if ("33560" %in% data_ids_special_cases_handled[["filter_field_id"]]) {
-    grepl_regex_string <- iconv(
-      "\x5e\x5c\x64\x2b\x28\x2d\xd0\xb0\xd1\x8f\x29\x3f\x20\x2e\x2a\xd0\xb3\xd0\xbe\xd0\xb4\xd0\xb0\x28\x5c\x73\x2b\x29\x3f\x5c\x29",
-      "UTF-8",
-      "UTF-8"
-    ) # "^\\d+(-aia)? .*goda(\\s+)?\\)" in UTF-8 escapes
+    grepl_regex_string <- "^\\d+(-\u0430\u044f)? .*\u0433\u043e\u0434\u0430(\\s+)?\\)"
+    # "^\\d+(-aia)? .*goda(\\s+)?\\)" in UTF-8 escapes
 
-    extract_regex_string <- iconv(
-      "\u005e\u005c\u0064\u002b\u0028\u002d\u0430\u044f\u0029\u003f\u0020",
-      "UTF-8",
-      "UTF-8"
-    ) # "^\\d+(-aia)? " in UTF-8 escapes
+    extract_regex_string <- "\u005e\u005c\u0064\u002b\u0028\u002d\u0430\u044f\u0029\u003f\u0020"
+    # "^\\d+(-aia)? " in UTF-8 escapes
 
     data_ids_special_cases_handled <- data_ids_special_cases_handled %>%
       dplyr::mutate(

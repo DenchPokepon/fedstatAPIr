@@ -14,7 +14,7 @@ data.frame
 }
 \description{
 Parses sdmx raw bytes received in response to POST request.
-This function is a wrapper around \code{readsdmx::read_sdmx} and \code{rsdmx::readSDMX},
+This function is a wrapper around \code{readsdmx::read_sdmx},
 in addition to reading data, automatically adds columns with values from lookup tables
 }
 \examples{

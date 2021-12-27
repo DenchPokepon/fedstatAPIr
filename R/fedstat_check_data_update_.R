@@ -10,28 +10,33 @@
 #'  in `data_df` (result of `fedstat_parse_sdmx_to_table`), currently only default values are allowed
 #'
 #' @return bool, TRUE if indicator data has been updated, FALSE if not
-fedstat_is_data_updated <- function(indicator_id,
-                                    reference_data_ids_unfiltered_special_cases_handled,
-                                    reference_data_df,
-                                    ...,
-                                    filters = list(),
-                                    time_filter_fields_titles =
-                                      c(
-                                        "\u041f\u0435\u0440\u0438\u043e\u0434", # Period in russian
-                                        "\u0413\u043e\u0434" # Year in russian
-                                      ),
-                                    time_fields_titles_in_df = c(
-                                      "PERIOD",
-                                      "Time"
-                                    ),
-                                    filter_value_title_alias_lookup_table = data.frame(
-                                      filter_value_title = character(),
-                                      filter_value_title_alias = character()
-                                    ),
-                                    timeout_seconds = 180,
-                                    retry_max_times = 3,
-                                    disable_warnings = FALSE,
-                                    httr_verbose = httr::verbose(data_out = FALSE)) {
+fedstat_check_data_update_ <- function(indicator_id,
+                                       reference_data_ids_unfiltered_special_cases_handled,
+                                       reference_data_df,
+                                       ...,
+                                       filters = list(),
+                                       time_filter_fields_titles =
+                                         c(
+                                           "\\u041f\\u0435\\u0440\\u0438\\u043e\\u0434", # Period in russian
+                                           "\\u0413\\u043e\\u0434" # Year in russian
+                                         ),
+                                       time_fields_titles_in_df = c(
+                                         "PERIOD",
+                                         "Time"
+                                       ),
+                                       filter_value_title_alias_lookup_table = data.frame(
+                                         filter_value_title = character(),
+                                         filter_value_title_alias = character(),
+                                         stringsAsFactors = FALSE
+                                       ),
+                                       timeout_seconds = 180,
+                                       retry_max_times = 3,
+                                       disable_warnings = FALSE,
+                                       httr_verbose = httr::verbose(data_out = FALSE)) {
+  for (i in seq_len(length(time_filter_fields_titles))) {
+    time_filter_fields_titles[i] <- eval(parse(text = paste0("'", time_filter_fields_titles[i], "'")))
+  }
+
   if (any(!(time_fields_titles_in_df %in% names(reference_data_df)))) {
     stop(
       "These filters ",
@@ -52,16 +57,6 @@ fedstat_is_data_updated <- function(indicator_id,
     "Time"
   ))) {
     stop("time_fields_titles_in_df is not configurable right now, please use the default value")
-  }
-
-  filters_copy <- filters
-
-  for (i in time_filter_fields_titles) {
-    if (i %in% names(filters_copy)) {
-      stop("This function automatically uses all PERIODs and last available in data_ids Year, do not specify time filters in filters list")
-    } else if (i != "\u0413\u043e\u0434") {
-      filters_copy[[i]] <- "*"
-    }
   }
 
   new_data_ids_unfiltered_special_cases_handled <- fedstat_get_data_ids(
@@ -99,11 +94,9 @@ fedstat_is_data_updated <- function(indicator_id,
     as.numeric() %>%
     max()
 
-  filters_copy[["\u0413\u043e\u0434"]] <- last_year
-
   new_data_ids_filtered <- fedstat_data_ids_filter(
     data_ids = new_data_ids_unfiltered_special_cases_handled,
-    filters = filters_copy,
+    filters = filters,
     disable_warnings = disable_warnings
   )
 

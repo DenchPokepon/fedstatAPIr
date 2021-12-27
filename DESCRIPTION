@@ -1,6 +1,6 @@
 Package: fedstatAPIr
-Title: Unofficial API for Fedstat (Rosstat EMISS system) for Automatic and Efficient Data Queries
-Version: 0.1.0.9000
+Title: Unofficial API for Fedstat (Rosstat EMISS System) for Automatic and Efficient Data Queries
+Version: 0.2.0
 Authors@R: 
     person(given = "Denis",
            family = "Krylov",
@@ -22,7 +22,6 @@ Imports:
     dplyr,
     xml2,
     readsdmx,
-    rsdmx,
     magrittr,
     utils,
     rlang,

@@ -7,6 +7,8 @@
 #'   as before returned different `data_ids` or `data_df`
 #'   (result of `fedstat_parse_sdmx_to_table`), then the data has been updated.
 #'
+#'   This function is not tested on real data
+#'
 #' @param prepared_reference_data_for_check_data_update result of
 #'  \link{fedstat_prepare_reference_data_for_check_data_update}
 #' @param ... other arguments passed to httr::GET and httr::POST
@@ -50,7 +52,6 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
                                       retry_max_times = 10,
                                       disable_warnings = FALSE,
                                       httr_verbose = NULL) {
-
   if (pause_minutes_between_requests < 10) {
     stop("pause_minutes_between_requests cannot be less than 10 minutes to avoid a heavy load on the fedstat.ru")
   }
@@ -65,7 +66,8 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
 
   for (check_number in seq_len(max_checks)) {
     if (verbose_tries) {
-      message("Trying to check data updates, timestamp: ",
+      message(
+        "Trying to check data updates, timestamp: ",
         as.character(Sys.time()),
         ", this is a ",
         check_number,
@@ -75,7 +77,7 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
       )
     }
 
-    is_updated <- fedstat_is_data_updated(
+    is_updated <- fedstat_check_data_update_(
       indicator_id = indicator_id,
       reference_data_ids_unfiltered_special_cases_handled = reference_data_ids_unfiltered_special_cases_handled,
       reference_data_df = reference_data_df,
@@ -94,7 +96,8 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
       if (is_updated) {
         message("Sucess! The data has just been updated")
       } else {
-        message("The check was successful, the data has not yet been updated, next try after ",
+        message(
+          "The check was successful, the data has not yet been updated, next try after ",
           round(pause_minutes_between_requests),
           " minutes"
         )

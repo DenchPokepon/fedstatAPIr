@@ -9,7 +9,7 @@ fedstat_data_load_with_filters(
   ...,
   filters = list(),
   filter_value_title_alias_lookup_table = data.frame(filter_value_title = character(),
-    filter_value_title_alias = character()),
+    filter_value_title_alias = character(), stringsAsFactors = FALSE),
   timeout_seconds = 180,
   retry_max_times = 3,
   disable_warnings = FALSE,

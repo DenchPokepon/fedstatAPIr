@@ -7,7 +7,7 @@
 fedstat_get_data_ids_special_cases_handle(
   data_ids,
   filter_value_title_alias_lookup_table = data.frame(filter_value_title = character(),
-    filter_value_title_alias = character())
+    filter_value_title_alias = character(), stringsAsFactors = FALSE)
 )
 }
 \arguments{

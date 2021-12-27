@@ -113,8 +113,8 @@ fedstat_post_data_ids_filtered <- function(data_ids,
     error = function(cond) {
       if (cond[["call"]] == str2lang("f(init, x[[i]])")
       && cond[["message"]] == "is.request(y) is not TRUE") {
-        stop("Passed invalid arguments to ... argument",
-          "did you accidentally passed filters to ...?",
+        stop("Passed invalid arguments to ... argument, ",
+          "did you accidentally passed filters to ...? ",
           "All arguments after ... must be explicitly named",
           call. = FALSE
         )
@@ -123,6 +123,15 @@ fedstat_post_data_ids_filtered <- function(data_ids,
       }
     }
   )
+
+  if (httr::http_error(POST_res)) {
+    httr::http_condition(POST_res, type = "error")
+  } else if (!(POST_res[["headers"]][["content-type"]]
+  %in% c("text/xml", "application/vnd.ms-excel"))) {
+    stop(
+      "No data found with specified filters or the fedstat is lagging"
+    )
+  }
 
   return(POST_res[["content"]])
 }

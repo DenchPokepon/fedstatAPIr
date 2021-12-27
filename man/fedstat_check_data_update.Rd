@@ -53,6 +53,8 @@ the only universal and accurate way to check for updated data is to try to
 download it and compare it to past data. If a query with the same filters
 as before returned different \code{data_ids} or \code{data_df}
 (result of \code{fedstat_parse_sdmx_to_table}), then the data has been updated.
+
+This function is not tested on real data
 }
 \examples{
 \dontrun{

@@ -47,8 +47,8 @@ fedstat_prepare_reference_data_for_check_data_update <- function(indicator_id,
                                                                  filters = list(),
                                                                  time_filter_fields_titles =
                                                                    c(
-                                                                     "\u041f\u0435\u0440\u0438\u043e\u0434", # Period in russian
-                                                                     "\u0413\u043e\u0434" # Year in russian
+                                                                     "\\u041f\\u0435\\u0440\\u0438\\u043e\\u0434", # Period in russian
+                                                                     "\\u0413\\u043e\\u0434" # Year in russian
                                                                    ),
                                                                  time_fields_titles_in_df = c(
                                                                    "PERIOD",
@@ -56,12 +56,17 @@ fedstat_prepare_reference_data_for_check_data_update <- function(indicator_id,
                                                                  ),
                                                                  filter_value_title_alias_lookup_table = data.frame(
                                                                    filter_value_title = character(),
-                                                                   filter_value_title_alias = character()
+                                                                   filter_value_title_alias = character(),
+                                                                   stringsAsFactors = FALSE
                                                                  ),
                                                                  timeout_seconds = 180,
                                                                  retry_max_times = 3,
                                                                  disable_warnings = FALSE,
                                                                  httr_verbose = httr::verbose(data_out = FALSE)) {
+  for (i in seq_len(length(time_filter_fields_titles))) {
+    time_filter_fields_titles[i] <- eval(parse(text = paste0("'", time_filter_fields_titles[i], "'")))
+  }
+
   if (!identical(time_filter_fields_titles, c(
     "\u041f\u0435\u0440\u0438\u043e\u0434", # Period in russian
     "\u0413\u043e\u0434" # Year in russian

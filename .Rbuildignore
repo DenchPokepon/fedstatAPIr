@@ -7,3 +7,4 @@
 .*\.tar\.gz$
 .*\.xlsx$
 ^filter_titles_aliases\.R$
+^tests$

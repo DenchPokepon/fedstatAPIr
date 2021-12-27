@@ -47,6 +47,7 @@ fedstat_java_script_default_data_ids_object_ids_parse_to_json <- function(java_s
       "left_columns" = "lineObjectIds",
       "top_columns" = "columnObjectIds",
       "groups" = "lineObjectIds",
+      "filterObjectIds" = "lineObjectIds",
       i
     )
   }

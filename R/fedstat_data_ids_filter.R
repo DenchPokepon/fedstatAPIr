@@ -99,11 +99,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   filters_added_indicator_title <- c(filters, list("Pokazatel" = indicator_title)) %>%
     `names<-`(c(
       names(filters),
-      iconv(
-        "\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u0435\u043b\u044c",
-        "UTF-8",
-        "UTF-8"
-      )
+      "\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u0435\u043b\u044c"
     )) # Pokazatel' in Russian written in UTF-8 escapes for CRAN
 
   filters_data_frame <- data.frame(
@@ -111,7 +107,8 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
       names(filters_added_indicator_title),
       sapply(filters_added_indicator_title, length, simplify = TRUE)
     ),
-    filter_value_title = unlist(filters_added_indicator_title, use.names = FALSE)
+    filter_value_title = unlist(filters_added_indicator_title, use.names = FALSE),
+    stringsAsFactors = FALSE
   )
 
   filters_data_frame_norm <- filters_data_frame %>%
@@ -216,7 +213,8 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
         filter_value_title = "*",
         filter_value_title.str_norm = "*",
         filters_specified_by_user = FALSE
-      )
+      ),
+      stringsAsFactors = FALSE
     )
 
   unspecified_filter_fields <-
@@ -321,5 +319,5 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   )
 
 
-  return(data_ids_norm_filtered_data_frame[original_data_ids_columns_order])
+  return(data_ids_norm_filtered_data_frame[, original_data_ids_columns_order])
 }
