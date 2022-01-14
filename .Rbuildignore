@@ -8,3 +8,4 @@
 .*\.xlsx$
 ^filter_titles_aliases\.R$
 ^tests$
+^TEST.txt$

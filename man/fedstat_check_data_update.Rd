@@ -75,7 +75,7 @@ is_updated <- fedstat_prepare_reference_data_for_check_data_update(
     "Types of goods and services" = "Sahar-pesok, kg"
   )
 ) \%>\%
-  fedstat_check_data_update()
+  fedstat_check_data_update(logfile = "logfile.txt")
 
 if (is_updated) print("Data for the indicator 37426 has been updated!")
 
