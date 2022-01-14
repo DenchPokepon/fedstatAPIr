@@ -43,7 +43,7 @@
 #'     "Types of goods and services" = "Sahar-pesok, kg"
 #'   )
 #' ) %>%
-#'   fedstat_check_data_update()
+#'   fedstat_check_data_update(logfile = "logfile.txt")
 #'
 #' if (is_updated) print("Data for the indicator 37426 has been updated!")
 #'
@@ -90,29 +90,31 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
     }
 
     is_updated <- tryCatch(
-    expr = fedstat_check_data_update_(
-      indicator_id = prepared_reference_data_for_check_data_update[["indicator_id"]],
-      reference_data_ids_unfiltered_special_cases_handled = prepared_reference_data_for_check_data_update[["reference_data_ids_unfiltered_special_cases_handled"]],
-      reference_data_df = prepared_reference_data_for_check_data_update[["reference_data_df"]],
-      ... = ...,
-      filters = prepared_reference_data_for_check_data_update[["filters"]],
-      time_filter_fields_titles = prepared_reference_data_for_check_data_update[["time_filter_fields_titles"]],
-      time_fields_titles_in_df = prepared_reference_data_for_check_data_update[["time_fields_titles_in_df"]],
-      filter_value_title_alias_lookup_table = prepared_reference_data_for_check_data_update[["filter_value_title_alias_lookup_table"]],
-      timeout_seconds = timeout_seconds,
-      retry_max_times = retry_max_times,
-      disable_warnings = disable_warnings,
-      httr_verbose = httr_verbose
-    ),
-    error = function(cond) {
-      message("Something went wrong when trying to query data,",
-      " the error may be due to incorrect specification of the query",
-      " by the user or the inaccessibility of the indicator on fedstat.ru.",
-      " To check for a potential error on the user side, please try to query the data",
-      " with the regular functions from the package")
-      return(FALSE)
-    }
-  )
+      expr = fedstat_check_data_update_(
+        indicator_id = prepared_reference_data_for_check_data_update[["indicator_id"]],
+        reference_data_ids_unfiltered_special_cases_handled = prepared_reference_data_for_check_data_update[["reference_data_ids_unfiltered_special_cases_handled"]],
+        reference_data_df = prepared_reference_data_for_check_data_update[["reference_data_df"]],
+        ... = ...,
+        filters = prepared_reference_data_for_check_data_update[["filters"]],
+        time_filter_fields_titles = prepared_reference_data_for_check_data_update[["time_filter_fields_titles"]],
+        time_fields_titles_in_df = prepared_reference_data_for_check_data_update[["time_fields_titles_in_df"]],
+        filter_value_title_alias_lookup_table = prepared_reference_data_for_check_data_update[["filter_value_title_alias_lookup_table"]],
+        timeout_seconds = timeout_seconds,
+        retry_max_times = retry_max_times,
+        disable_warnings = disable_warnings,
+        httr_verbose = httr_verbose
+      ),
+      error = function(cond) {
+        message(
+          "Something went wrong when trying to query data,",
+          " the error may be due to incorrect specification of the query",
+          " by the user or the inaccessibility of the indicator on fedstat.ru.",
+          " To check for a potential error on the user side, please try to query the data",
+          " with the regular functions from the package"
+        )
+        return(FALSE)
+      }
+    )
 
     if (verbose_tries || is.character(logfile)) {
       if (is_updated) {
@@ -137,8 +139,6 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
       message("done")
       return(TRUE)
     }
-
-    
   }
 
   if (is.character(logfile)) {
