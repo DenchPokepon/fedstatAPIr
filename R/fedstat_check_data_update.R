@@ -78,7 +78,7 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
 
     if (verbose_tries || is.character(logfile)) {
       message(
-        "----------------------------------------",
+        "----------------------------------------\n",
         "Trying to check data updates, timestamp: ",
         as.character(Sys.time()),
         ", this is a ",
@@ -112,6 +112,7 @@ fedstat_check_data_update <- function(prepared_reference_data_for_check_data_upd
           " To check for a potential error on the user side, please try to query the data",
           " with the regular functions from the package"
         )
+        message("error condition: ", cond)
         return(FALSE)
       }
     )
