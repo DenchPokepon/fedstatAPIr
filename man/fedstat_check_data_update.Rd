@@ -12,8 +12,10 @@ fedstat_check_data_update(
   verbose_tries = TRUE,
   timeout_seconds = 180,
   retry_max_times = 10,
-  disable_warnings = FALSE,
-  httr_verbose = NULL
+  disable_warnings = TRUE,
+  httr_verbose = NULL,
+  logfile = NULL,
+  overwrite_logfile = FALSE
 )
 }
 \arguments{
@@ -23,7 +25,9 @@ fedstat_check_data_update(
 \item{...}{other arguments passed to httr::GET and httr::POST}
 
 \item{pause_minutes_between_requests}{numeric, the number of minutes to wait
-before the next request, cannot be less than 10 minutes to avoid a heavy load on the fedstat.ru}
+before the next request, cannot be less than 10 minutes to avoid a heavy load on the fedstat.ru
+The time between requests will not be exactly equal to the specified value,
+because the countdown starts only after the request is finished}
 
 \item{max_checks}{numeric, maximum number of checks before returning \code{FALSE}}
 
@@ -37,11 +41,15 @@ sends messages to the console about the progress of attempts to find out whether
 \item{disable_warnings}{bool, enables or disables following warnings in \code{fedstat_data_ids_filter}:
 \enumerate{
 \item About non matched \code{filter_value_title} in \code{filters} and \code{filter_value_title} from \code{data_ids};
-\item About unspecified \code{filter_filed_title} in filters.
+\item About unspecified \code{filter_filed_title} in \code{filters}.
 }}
 
 \item{httr_verbose}{\code{httr::verbose()} or NULL, outputs messages to the console
 about the processing of the request}
+
+\item{logfile}{the path to the log file, if NULL, the messages are sent to the console}
+
+\item{overwrite_logfile}{boolean, if true overwrites content of \code{logfile}}
 }
 \value{
 bool, TRUE if indicator data has been updated, FALSE if max_checks is exceeded
@@ -55,6 +63,8 @@ as before returned different \code{data_ids} or \code{data_df}
 (result of \code{fedstat_parse_sdmx_to_table}), then the data has been updated.
 
 This function is not tested on real data
+
+Logging to a file is supported
 }
 \examples{
 \dontrun{
