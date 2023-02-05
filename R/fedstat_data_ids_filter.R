@@ -81,6 +81,8 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   str_norm <- function(x) tolower(stringr::str_squish(x))
 
+  data_ids <- as.data.frame(data_ids) # in order to keep consistancy
+
   data_ids_norm <- data_ids %>%
     dplyr::mutate(
       filter_field_title.str_norm = str_norm(.data[["filter_field_title"]]),
@@ -319,5 +321,5 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   )
 
 
-  return(data_ids_norm_filtered_data_frame[, original_data_ids_columns_order])
+  return(as.data.table(data_ids_norm_filtered_data_frame[, original_data_ids_columns_order]))
 }

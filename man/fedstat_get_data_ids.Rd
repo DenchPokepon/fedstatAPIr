@@ -35,7 +35,6 @@ data.frame with all character type columns:
 \item filter_field_object_ids - special strings that define the location of the filters fields.
 It can take the following values: lineObjectIds (filters in lines),
 columnObjectIds (filters in columns), filterObjectIds (hidden filters for all data);
-\item filter_field_object_ids_order - sorting for \code{filter_field_object_ids}, determines the order of the filters fields.
 }
 }
 \description{
@@ -74,7 +73,7 @@ Users can specify filter_field_object_ids for each filter_field in resulting dat
 \examples{
 \dontrun{
 # Get data filters identificators for week prices
-data_ids <- fedstat_get_indicator_data_ids("37426")
+data_ids <- fedstat_get_data_ids("37426")
 }
 }
 \seealso{

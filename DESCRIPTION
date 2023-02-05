@@ -13,7 +13,7 @@ BugReports: https://github.com/DenchPokepon/fedstatAPIr/issues
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.3
 Imports: 
     httr,
     rvest,
@@ -25,6 +25,7 @@ Imports:
     magrittr,
     utils,
     rlang,
-    methods
+    methods,
+    data.table
 Depends: 
     R (>= 2.10)

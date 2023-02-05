@@ -10,8 +10,7 @@ fedstat_check_data_update_(
   reference_data_df,
   ...,
   filters = list(),
- 
-    time_filter_fields_titles = c("\\\\u041f\\\\u0435\\\\u0440\\\\u0438\\\\u043e\\\\u0434",
+  time_filter_fields_titles = c("\\\\u041f\\\\u0435\\\\u0440\\\\u0438\\\\u043e\\\\u0434",
     "\\\\u0413\\\\u043e\\\\u0434"),
   time_fields_titles_in_df = c("PERIOD", "Time"),
   filter_value_title_alias_lookup_table = data.frame(filter_value_title = character(),

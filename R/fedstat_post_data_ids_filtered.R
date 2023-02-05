@@ -59,79 +59,39 @@ fedstat_post_data_ids_filtered <- function(data_ids,
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
                                            httr_verbose = httr::verbose(data_out = FALSE)) {
-  data_format <- match.arg(data_format, data_format)
-  POST_URL <- paste0(FEDSTAT_URL_BASE, "/indicator/data.do?format=", data_format)
-  filter_field <- "selectedFilterIds"
 
-  indicator_id_and_title <- data_ids[
-    data_ids[["filter_field_id"]] == "0",
-    c("filter_value_id", "filter_value_title"),
-    drop = TRUE
-  ]
+  # workaround for `:=` and CMD check
+  filter_field_id = filter_value_id = NULL
 
-  indicator_id <- indicator_id_and_title[["filter_value_id"]]
-  indicator_title <- indicator_id_and_title[["filter_value_title"]]
+  data_format <- match.arg(data_format)
+  POST_URL <- paste0("https://www.fedstat.ru/indicator/data.do?format=", data_format)
 
-  data_ids_unique_filters <- dplyr::distinct(data_ids,
-    .data[["filter_field_id"]],
-    .keep_all = TRUE
-  ) %>%
-    dplyr::arrange(.data[["filter_field_object_ids_order"]])
+  indicator <- data_ids[filter_field_id == "0", c("filter_value_id", "filter_value_title")]
 
-  object_ids_filters <- as.list(data_ids_unique_filters[["filter_field_id"]]) %>%
-    `names<-`(data_ids_unique_filters[["filter_field_object_ids"]])
+  # filters <- unique(data_ids, by = "filter_field_id")[order(id_order)][, c("filter_field_id", "filter_field_object_ids")] # ordering is not needed
+  filters <- unique(data_ids, by = "filter_field_id")[, c("filter_field_id", "filter_field_object_ids")]
 
-  data_ids_filtered_POST_body <- data_ids %>%
-    dplyr::summarise(
-      filter_string = paste0(.data[["filter_field_id"]], "_", .data[["filter_value_id"]])
-    ) %>%
-    dplyr::pull("filter_string") %>%
-    as.list() %>%
-    `names<-`(rep(filter_field, length(.)))
+  filters_list <- as.list(filters[["filter_field_id"]])  %>%
+    `names<-`(filters[["filter_field_object_ids"]])
 
+  filter_values <- data_ids[, .(filter_string = paste0(filter_field_id, "_", filter_value_id))][["filter_string"]] %>%
+    as.list()
+
+  names(filter_values) <- (rep("selectedFilterIds", length(filter_values)))
 
   POST_body <- c(
-    list(
-      "format" = data_format,
-      "id" = indicator_id,
-      "indicator_title" = indicator_title
-    ),
-    object_ids_filters,
-    data_ids_filtered_POST_body
-  )
+    list("format" = data_format,
+         "id" = indicator[["filter_value_id"]],
+         "indicator_title" = indicator[["filter_value_title"]]),
+    filters_list,
+    filter_values)
 
-  POST_res <- tryCatch(
-    expr = httr::RETRY(
-      "POST",
-      POST_URL,
-      httr_verbose,
-      httr::timeout(timeout_seconds),
-      times = retry_max_times,
-      body = POST_body,
-      ... = ...
-    ),
-    error = function(cond) {
-      if (cond[["call"]] == str2lang("f(init, x[[i]])")
-      && cond[["message"]] == "is.request(y) is not TRUE") {
-        stop("Passed invalid arguments to ... argument, ",
-          "did you accidentally passed filters to ...? ",
-          "All arguments after ... must be explicitly named",
-          call. = FALSE
-        )
-      } else {
-        stop(cond)
-      }
-    }
-  )
+  POST_res <- httr::RETRY("POST", POST_URL, httr_verbose, httr::timeout(timeout_seconds),
+                          times = retry_max_times, body = POST_body, ...)
 
-  if (httr::http_error(POST_res)) {
-    httr::http_condition(POST_res, type = "error")
-  } else if (!(POST_res[["headers"]][["content-type"]]
-  %in% c("text/xml", "application/vnd.ms-excel"))) {
-    stop(
-      "No data found with specified filters or the fedstat is lagging"
-    )
-  }
+  if(httr::http_error(POST_res)){httr::http_condition(POST_res, type = "error")} else
+    if(!(POST_res[["headers"]][["content-type"]] %in% c("text/xml", "application/vnd.ms-excel"))){
+      stop("No data found with specified filters or the fedstat is lagging")}
 
   return(POST_res[["content"]])
 }

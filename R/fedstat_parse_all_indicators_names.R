@@ -19,7 +19,7 @@ fedstat_parse_all_indicators_names <- function(url = "https://fedstat.ru/organiz
   recursive_agregator <- function(ved_xml_nodeset) {
     ved_xml_nodeset_len <- length(ved_xml_nodeset)
 
-    if (class(ved_xml_nodeset) != "xml_nodeset") stop("error")
+    if (!methods::is(ved_xml_nodeset, "xml_nodeset")) stop("error")
     if (ved_xml_nodeset_len == 0) {
       return(NA)
     }
