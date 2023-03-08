@@ -50,6 +50,8 @@ fedstat_parse_sdmx_to_table <- function(data_raw) {
 
   data_sdmx_parsed <- readsdmx::read_sdmx(tmp_file) # much faster read than rsdmx
 
+  names(data_sdmx_parsed) <- iconv(names(data_sdmx_parsed), "UTF-8", "UTF-8") # repair cyrillic symbols encoding
+
   xml_parsed <- xml2::read_xml(tmp_file)
 
   codelist_field_id <- xml2::xml_attr(

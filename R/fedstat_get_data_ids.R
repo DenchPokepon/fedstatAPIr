@@ -86,8 +86,8 @@ fedstat_get_data_ids <- function(indicator_id,
       ... = ...
     ),
     error = function(cond) {
-      if (cond[["call"]] == str2lang("f(init, x[[i]])")
-      && cond[["message"]] == "is.request(y) is not TRUE") {
+      if (cond[["call"]] == str2lang("f(init, x[[i]])") &&
+        cond[["message"]] == "is.request(y) is not TRUE") {
         stop("Passed invalid arguments to ... argument, ",
           "did you accidentally passed filters to ...? ",
           "All arguments after ... must be explicitly named",
