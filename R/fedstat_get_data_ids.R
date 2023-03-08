@@ -49,7 +49,6 @@
 #'   5. filter_field_object_ids - special strings that define the location of the filters fields.
 #'   It can take the following values: lineObjectIds (filters in lines),
 #'   columnObjectIds (filters in columns), filterObjectIds (hidden filters for all data);
-#'   6. filter_field_object_ids_order - sorting for `filter_field_object_ids`, determines the order of the filters fields.
 #'
 #' @seealso \code{\link{fedstat_get_data_ids_special_cases_handle},
 #'   \link{fedstat_data_ids_filter},
@@ -62,121 +61,61 @@
 #' @examples
 #' \dontrun{
 #' # Get data filters identificators for week prices
-#' data_ids <- fedstat_get_indicator_data_ids("37426")
+#' data_ids <- fedstat_get_data_ids("37426")
 #' }
 fedstat_get_data_ids <- function(indicator_id,
                                  ...,
                                  timeout_seconds = 180,
                                  retry_max_times = 3,
                                  httr_verbose = httr::verbose(data_out = FALSE)) {
-  java_script_source_code_with_data_ids_html_node_index <- 12 # Empirically determined value,
-  # on the fedstat, this node with java script source code with filter ids in it does not have any attributes, id or classes
 
-  indicator_URL <- paste(FEDSTAT_URL_BASE, "indicator", indicator_id, sep = "/")
+  # workaround for `:=` and CMD check
+  filter_value_title = filter_field_object_ids = NULL
 
-  indicator_id <- as.character(indicator_id)
+  indicator_URL <- paste("https://www.fedstat.ru/indicator", indicator_id, sep = "/")
+  GET_res <- httr::RETRY("GET", indicator_URL, httr_verbose, httr::timeout(timeout_seconds), times = retry_max_times, ...)
+  if(httr::http_error(GET_res)){httr::http_condition(GET_res, type = "error")}
 
-  GET_res <- tryCatch(
-    expr = httr::RETRY(
-      "GET",
-      indicator_URL,
-      httr_verbose,
-      httr::timeout(timeout_seconds),
-      times = retry_max_times,
-      ... = ...
-    ),
-    error = function(cond) {
-      if (cond[["call"]] == str2lang("f(init, x[[i]])") &&
-        cond[["message"]] == "is.request(y) is not TRUE") {
-        stop("Passed invalid arguments to ... argument, ",
-          "did you accidentally passed filters to ...? ",
-          "All arguments after ... must be explicitly named",
-          call. = FALSE
-        )
-      } else {
-        stop(cond)
-      }
-    }
-  )
-
-  if (httr::http_error(GET_res)) {
-    httr::http_condition(GET_res, type = "error")
-  }
 
   GET_html <- xml2::read_html(GET_res, encoding = "UTF-8")
-  java_script_source_code_with_data_ids <- rvest::html_nodes(
-    GET_html, "script"
-  )[[java_script_source_code_with_data_ids_html_node_index]] %>%
-    rvest::html_text() %>%
+
+  js_script <- xml2::xml_find_all(GET_html, ".//script")[[12]]  %>%  # 12 - Empirically determined value
+    xml2::xml_text() %>%
     strsplit("\n") %>%
     unlist()
 
-  java_script_data_ids_json_parsed <- fedstat_java_script_data_ids_parse_to_json(
-    java_script_source_code_with_data_ids
+  filter_list <- parse_js1(js_script)
+  object_list <- parse_js2(js_script) %>% unlist()
+
+  if(all(object_list != "0")){object_list[["filterObjectIds"]] <- "0"} # Add special filterObjectIds (indicator id)
+
+  object_df <- data.frame(
+    filter_field_id = unname(object_list),
+    filter_field_object_ids = names(object_list) %>% gsub(x = ., "\\d", ""),
+    stringsAsFactors = FALSE
   )
 
-  java_script_default_data_ids_object_ids_json_parsed <- fedstat_java_script_default_data_ids_object_ids_parse_to_json(
-    java_script_source_code_with_data_ids
-  )
+  filter_id_list <- lapply(filter_list, function(x){
 
-  if (all(unlist(java_script_default_data_ids_object_ids_json_parsed) != 0)) {
-    java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]] <- c(
-      java_script_default_data_ids_object_ids_json_parsed[["filterObjectIds"]],
-      "0"
-    ) # Add special filterObjectIds (indicator id)
-  }
+    filter_values <- x[["values"]]
 
+    if(!length(names(filter_values))){
+      stop("fedstat returned erroneous data_ids. It's probably lagging. There are no filter values in the \"",
+           x[["title"]], "\" filter ")}
 
-  object_ids_filters <- unlist(java_script_default_data_ids_object_ids_json_parsed, use.names = TRUE) %>%
-    `names<-`(stringr::str_remove(names(.), "\\d")) %>% # use.names makes unique names (adds numbers for duplicates), but we don't need this
     data.frame(
-      "filter_field_id" = .,
-      "filter_field_object_ids" = names(.),
-      "filter_field_object_ids_order" = seq_len(length(.)),
-      stringsAsFactors = FALSE
-    )
+      filter_field_title = x[["title"]],
+      filter_value_id = names(filter_values),
+      filter_value_title = unlist(lapply(filter_values, function(x)x[["title"]])),
+      stringsAsFactors = FALSE, row.names = NULL)
+  })
 
-  indicator_title <- java_script_data_ids_json_parsed[["0"]][["values"]][[indicator_id]][["title"]]
+  filter_dt <- rbindlist(filter_id_list, idcol = "filter_field_id", use.names = TRUE)[
+    , filter_value_title := gsub("&quot;", "\"", x = filter_value_title)]  %>%
+    merge.data.table(object_df, by = "filter_field_id", all.x = TRUE)
 
-  data_ids_list <- vector("list", length(java_script_data_ids_json_parsed))
 
-  for (i in seq_len(length(java_script_data_ids_json_parsed))) {
-    filter_field_id <- names(java_script_data_ids_json_parsed)[i]
+  if(uniqueN(filter_dt) != nrow(filter_dt)){stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")}
 
-    if (!length(names(java_script_data_ids_json_parsed[[filter_field_id]][["values"]]))) {
-      stop(
-        "fedstat returned erroneous data_ids. It's probably lagging. There are no filter values in the \"",
-        java_script_data_ids_json_parsed[[filter_field_id]][["title"]], "\" filter "
-      )
-    }
-
-    data_ids_list[[i]] <- data.frame(
-      "filter_field_id" = filter_field_id,
-      "filter_field_title" = java_script_data_ids_json_parsed[[filter_field_id]][["title"]],
-      "filter_value_id" = names(java_script_data_ids_json_parsed[[filter_field_id]][["values"]]),
-      "filter_value_title" = unlist(lapply(
-        java_script_data_ids_json_parsed[[filter_field_id]][["values"]],
-        function(x) x[["title"]]
-      )),
-      stringsAsFactors = FALSE
-    )
-  }
-
-  data_ids_data_frame <- do.call(rbind.data.frame, c(data_ids_list, make.row.names = FALSE)) %>%
-    dplyr::mutate(filter_value_title = gsub("&quot;", "\"", .data[["filter_value_title"]]))
-
-  data_ids_data_frame_with_object_filters <- data_ids_data_frame %>%
-    dplyr::left_join(object_ids_filters,
-      by = c("filter_field_id" = "filter_field_id")
-    )
-
-  if (nrow(data_ids_data_frame_with_object_filters) !=
-    nrow(dplyr::distinct(
-      data_ids_data_frame_with_object_filters,
-      .data[["filter_field_id"]], .data[["filter_value_id"]]
-    ))) {
-    stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")
-  }
-
-  return(data_ids_data_frame_with_object_filters)
+  filter_dt[, filter_field_object_ids := fifelse(is.na(filter_field_object_ids), "lineObjectIds", filter_field_object_ids)][]
 }
