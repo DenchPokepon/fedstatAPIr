@@ -76,6 +76,7 @@ fedstat_get_data_ids <- function(indicator_id,
   GET_res <- httr::RETRY("GET", indicator_URL, httr_verbose, httr::timeout(timeout_seconds), times = retry_max_times, ...)
   if(httr::http_error(GET_res)){httr::http_condition(GET_res, type = "error")}
 
+
   GET_html <- xml2::read_html(GET_res, encoding = "UTF-8")
 
   js_script <- xml2::xml_find_all(GET_html, ".//script")[[12]]  %>%  # 12 - Empirically determined value

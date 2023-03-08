@@ -48,6 +48,7 @@ fedstat_parse_sdmx_to_table <- function(data_raw) {
 
   if(is.null(data_raw) | methods::is(data_raw, "character")) return(NULL)
 
+
   tmp_file <- tempfile()
   writeLines(rawToChar(data_raw), tmp_file)
 

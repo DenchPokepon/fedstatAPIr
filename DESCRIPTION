@@ -1,10 +1,10 @@
 Package: fedstatAPIr
 Title: Unofficial API for Fedstat (Rosstat EMISS System) for Automatic and Efficient Data Queries
-Version: 0.2.0
+Version: 0.3.0.9000
 Authors@R: 
     person(given = "Denis",
            family = "Krylov",
-	   role =c("aut", "cre"),
+	       role =c("aut", "cre"),
            email = "deniskrylovvit@gmail.com")
 Description: An API for automatic data queries to the fedstat <https://www.fedstat.ru>, using a small set of functions with a common interface.
 License: MIT + file LICENSE

@@ -34,7 +34,7 @@
 #' # Get data filters identificators for week prices
 #' # and standardize names for DVFO and extract week numbers
 #' data_ids_special_cases_handled <- fedstat_get_data_ids("37426") %>%
-#'   fedstat_get_indicator_data_ids_special_cases_handle(
+#'   fedstat_get_data_ids_special_cases_handle(
 #'     filter_value_title_alias_lookup_table = data.frame(
 #'       "filter_value_title" = "Dalnevostochnyj federalnyj okrug ( s 03.11.2018)",
 #'       "filter_value_title_alias" = "Dalnevostochnyj federalnyj okrug"
@@ -68,14 +68,14 @@ fedstat_get_data_ids_special_cases_handle <- function(data_ids,
     data_ids_special_cases_handled <- data_ids_special_cases_handled %>%
       dplyr::mutate(
         filter_value_title_week = dplyr::if_else(
-          .data[["filter_field_id"]] == "33560"
-          & grepl(grepl_regex_string, .data[["filter_value_title"]]),
+          .data[["filter_field_id"]] == "33560" &
+            grepl(grepl_regex_string, .data[["filter_value_title"]]),
           .data[["filter_value_title"]],
           NA_character_
         ),
         filter_value_title = dplyr::if_else(
-          .data[["filter_field_id"]] == "33560"
-          & grepl(grepl_regex_string, .data[["filter_value_title"]]),
+          .data[["filter_field_id"]] == "33560" &
+            grepl(grepl_regex_string, .data[["filter_value_title"]]),
           stringr::str_remove( # remove leading zeroes
             stringr::str_extract(
               stringr::str_extract(

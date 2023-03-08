@@ -44,7 +44,7 @@ Function will be supplemented with new methods for processing special cases as t
 # Get data filters identificators for week prices
 # and standardize names for DVFO and extract week numbers
 data_ids_special_cases_handled <- fedstat_get_data_ids("37426") \%>\%
-  fedstat_get_indicator_data_ids_special_cases_handle(
+  fedstat_get_data_ids_special_cases_handle(
     filter_value_title_alias_lookup_table = data.frame(
       "filter_value_title" = "Dalnevostochnyj federalnyj okrug ( s 03.11.2018)",
       "filter_value_title_alias" = "Dalnevostochnyj federalnyj okrug"
