@@ -96,7 +96,7 @@ fedstat_parse_sdmx_to_table <- function(data_raw, return_type = c("data", "dicti
     codelist_tbl[field_id == x][
       ,
       c("value_title", "value_id")
-      ][data[, x, with = FALSE], on = c(value_id = x)][["value_title"]]
+    ][data[, x, with = FALSE], on = c(value_id = x)][["value_title"]]
   }) %>%
     `names<-`(field_ids) %>%
     data.table::as.data.table() %>%

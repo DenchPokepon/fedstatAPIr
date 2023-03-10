@@ -117,7 +117,7 @@ fedstat_get_data_ids <- function(indicator_id,
     filter_field_object_ids = names(object_list) %>% gsub(x = ., "\\d", ""),
     stringsAsFactors = FALSE
   ) %>%
-  unique(by = "filter_field_id")
+    unique(by = "filter_field_id")
 
   filter_id_list <- lapply(filter_list, function(x) {
     filter_values <- x[["values"]]
