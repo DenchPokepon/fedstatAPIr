@@ -1,11 +1,16 @@
 Package: fedstatAPIr
 Title: Unofficial API for Fedstat (Rosstat EMISS System) for Automatic and Efficient Data Queries
-Version: 0.3.0.9000
-Authors@R: 
+Version: 1.0.0
+Authors@R: c(
     person(given = "Denis",
            family = "Krylov",
 	       role =c("aut", "cre"),
-           email = "deniskrylovvit@gmail.com")
+           email = "deniskrylovvit@gmail.com"),
+    person(given = "Dmitry",
+           family = "Kibalnikov",
+	       role =c("aut"),
+           email = "d.kibalnikov@gmail.com")     
+    )  
 Description: An API for automatic data queries to the fedstat <https://www.fedstat.ru>, using a small set of functions with a common interface.
 License: MIT + file LICENSE
 URL: https://github.com/DenchPokepon/fedstatAPIr
@@ -13,18 +18,15 @@ BugReports: https://github.com/DenchPokepon/fedstatAPIr/issues
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.3
 Imports: 
     httr,
-    rvest,
     jsonlite,
-    stringr,
-    dplyr,
     xml2,
     readsdmx,
     magrittr,
     utils,
-    rlang,
-    methods
+    methods,
+    data.table
 Depends: 
     R (>= 2.10)

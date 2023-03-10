@@ -10,7 +10,7 @@ fedstat_post_data_ids_filtered(
   data_format = c("sdmx", "excel"),
   timeout_seconds = 180,
   retry_max_times = 3,
-  httr_verbose = httr::verbose(data_out = FALSE)
+  httr_verbose = NULL
 )
 }
 \arguments{
@@ -44,29 +44,21 @@ excel raw bytes can be passed to \code{writeBin} to create an xls file
 }
 \examples{
 \dontrun{
-# Get data filters identificators for week prices
-# standardize names for DVFO and extract week numbers
-# filter the data_ids to get data for week 21 and 22 of 2021
+# Get data filters identificators for CPI
+# filter the data_ids to get data for january of 2023
 # for all goods and services for Russian Federation
 # POST filters and download data in sdmx format
-data <- fedstat_get_data_ids("37426") \%>\%
-  fedstat_get_data_ids_special_cases_handle(
-    filter_value_title_alias_lookup_table = data.frame(
-      "filter_value_title" = "Dalnevostochnyj federalnyj okrug ( s 03.11.2018)",
-      "filter_value_title_alias" = "Dalnevostochnyj federalnyj okrug"
-    )
-  ) \%>\%
+data <- fedstat_get_data_ids("31074") \%>\%
   fedstat_data_ids_filter(
     filters = list(
       "Territory" = "Russian Federation",
-      "Year" = "2021",
-      "Period" = c(21, 22),
+      "Year" = "2023",
+      "Period" = "January",
       "Types of goods and services" = "*"
     )
   ) \%>\%
   fedstat_post_data_ids_filtered()
 
-# In this example names for DVFO are latinized for CRAN
 # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 }
 }

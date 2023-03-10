@@ -11,8 +11,8 @@
 #'   it is simply a human-readable word or phrase (e.g. "Year", "Region")
 #'   that reflects the essence of the property by which filtering takes place
 #'
-#'   The `filter field` reflects the individual property specific value of the data point.
-#'   (e.g. 2021 for Year, "Russian Federation" for Region, etc.)
+#'   The `filter value` reflects the individual property specific value of the data point.
+#'   (e.g. 2021 for the Year, "Russian Federation" for the region, etc.)
 #'   It also has a title (`filter_value_title`) with
 #'   the same purpose as `filter_field_title`
 #'
@@ -38,14 +38,14 @@
 #' @inheritParams fedstat_data_ids_filter
 #' @param timeout_seconds numeric, maximum time before a new GET and POST request is tried
 #' @param retry_max_times numeric, maximum number of tries to GET and POST `data_ids`
-#' @inheritParams fedstat_get_data_ids_special_cases_handle
+#' @param loading_steps_verbose logical, print data loading steps to console
+#' @inheritParams fedstat_parse_sdmx_to_table
 #'
 #' @return data.frame with filtered indicator data from fedstat.ru
 #' @export
 #'
 #' @seealso \code{
 #'   \link{fedstat_get_data_ids},
-#'   \link{fedstat_get_data_ids_special_cases_handle},
 #'   \link{fedstat_data_ids_filter},
 #'   \link{fedstat_post_data_ids_filtered},
 #'   \link{fedstat_parse_sdmx_to_table}
@@ -53,14 +53,14 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Download weekly goods and services prices data for week 21 and 22 of 2021
+#' # Download CPI data
 #' # for all goods and services for Russian Federation
 #' data <- fedstat_data_load_with_filters(
-#'   indicator_id = "37426",
+#'   indicator_id = "31074",
 #'   filters = list(
 #'     "Territory" = "Russian Federation",
-#'     "Year" = "2021",
-#'     "Period" = c(21, 22),
+#'     "Year" = "2023",
+#'     "Period" = "January",
 #'     "Types of goods and services" = "*"
 #'   )
 #' )
@@ -69,15 +69,20 @@
 fedstat_data_load_with_filters <- function(indicator_id,
                                            ...,
                                            filters = list(),
-                                           filter_value_title_alias_lookup_table = data.frame(
-                                             filter_value_title = character(),
-                                             filter_value_title_alias = character(),
-                                             stringsAsFactors = FALSE
-                                           ),
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
                                            disable_warnings = FALSE,
-                                           httr_verbose = httr::verbose(data_out = FALSE)) {
+                                           httr_verbose = NULL,
+                                           loading_steps_verbose = TRUE,
+                                           return_type = c("data", "dictionary"),
+                                           try_to_parse_ObsValue = TRUE) {
+  if (loading_steps_verbose) {
+    cat(
+      "Downloading EMISS internal identificators for the https://www.fedstat.ru/indicator/",
+      indicator_id, " ...\n",
+      sep = ""
+    )
+  }
   data_ids <- fedstat_get_data_ids(
     indicator_id,
     ... = ...,
@@ -86,26 +91,29 @@ fedstat_data_load_with_filters <- function(indicator_id,
     httr_verbose = httr_verbose
   )
 
-  data_ids_special_cases_handled <- fedstat_get_data_ids_special_cases_handle(
+  data_ids_filtered <- fedstat_data_ids_filter(
     data_ids = data_ids,
-    filter_value_title_alias_lookup_table = filter_value_title_alias_lookup_table
-  )
-
-  data_ids_special_cases_handled_filtered <- fedstat_data_ids_filter(
-    data_ids = data_ids_special_cases_handled,
     filters = filters,
     disable_warnings = disable_warnings
   )
 
+  if (loading_steps_verbose) cat("Downloading data from EMISS ...\n")
   data_raw <- fedstat_post_data_ids_filtered(
-    data_ids = data_ids_special_cases_handled_filtered,
+    data_ids = data_ids_filtered,
     ... = ...,
     timeout_seconds = timeout_seconds,
     retry_max_times = retry_max_times,
     httr_verbose = httr_verbose
   )
 
-  data_data_frame <- fedstat_parse_sdmx_to_table(data_raw = data_raw)
+  if (loading_steps_verbose) cat("Parsing data ...\n")
+  data_data_frame <- fedstat_parse_sdmx_to_table(
+    data_raw = data_raw, 
+    return_type = return_type, 
+    try_to_parse_ObsValue = try_to_parse_ObsValue
+    )
+
+  if (loading_steps_verbose) cat("Done\n")
 
   return(data_data_frame)
 }

@@ -9,7 +9,7 @@ fedstat_get_data_ids(
   ...,
   timeout_seconds = 180,
   retry_max_times = 3,
-  httr_verbose = httr::verbose(data_out = FALSE)
+  httr_verbose = NULL
 )
 }
 \arguments{
@@ -35,7 +35,6 @@ data.frame with all character type columns:
 \item filter_field_object_ids - special strings that define the location of the filters fields.
 It can take the following values: lineObjectIds (filters in lines),
 columnObjectIds (filters in columns), filterObjectIds (hidden filters for all data);
-\item filter_field_object_ids_order - sorting for \code{filter_field_object_ids}, determines the order of the filters fields.
 }
 }
 \description{
@@ -73,12 +72,11 @@ Users can specify filter_field_object_ids for each filter_field in resulting dat
 }
 \examples{
 \dontrun{
-# Get data filters identificators for week prices
-data_ids <- fedstat_get_indicator_data_ids("37426")
+# Get data filters identificators for CPI
+data_ids <- fedstat_get_data_ids("31074")
 }
 }
 \seealso{
-\code{\link{fedstat_get_data_ids_special_cases_handle},
-  \link{fedstat_data_ids_filter},
+\code{\link{fedstat_data_ids_filter},
   \link{fedstat_post_data_ids_filtered}}
 }

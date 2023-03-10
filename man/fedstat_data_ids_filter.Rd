@@ -60,27 +60,19 @@ to compare the equality of \code{data_ids} and \code{filters}
 }
 \examples{
 \dontrun{
-# Get data filters identificators for week prices
-# standardize names for DVFO and extract week numbers
-# filter the data_ids to get data for week 21 and 22 of 2021
+# Get data filters identificators for CPI
+# filter the data_ids to get data for january of 2023
 # for all goods and services for Russian Federation
-data_ids_filtered <- fedstat_get_data_ids("37426") \%>\%
-  fedstat_get_data_ids_special_cases_handle(
-    filter_value_title_alias_lookup_table = data.frame(
-      "filter_value_title" = "Dalnevostochnyj federalnyj okrug ( s 03.11.2018)",
-      "filter_value_title_alias" = "Dalnevostochnyj federalnyj okrug"
-    )
-  ) \%>\%
+data_ids_filtered <- fedstat_get_data_ids("31074") \%>\%
   fedstat_data_ids_filter(
     filters = list(
       "Territory" = "Russian Federation",
-      "Year" = "2021",
-      "Period" = c(21, 22),
+      "Year" = "2023",
+      "Period" = "January",
       "Types of goods and services" = "*"
     )
   )
 
-# In this example names for Far Eastern Federal District are latinized for CRAN
 # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 }
 }

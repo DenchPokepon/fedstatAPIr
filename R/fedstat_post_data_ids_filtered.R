@@ -24,33 +24,23 @@
 #'
 #' @seealso \code{\link{fedstat_parse_sdmx_to_table}}
 #'
-#' @importFrom rlang .data
-#'
 #' @examples
 #' \dontrun{
-#' # Get data filters identificators for week prices
-#' # standardize names for DVFO and extract week numbers
-#' # filter the data_ids to get data for week 21 and 22 of 2021
+#' # Get data filters identificators for CPI
+#' # filter the data_ids to get data for january of 2023
 #' # for all goods and services for Russian Federation
 #' # POST filters and download data in sdmx format
-#' data <- fedstat_get_data_ids("37426") %>%
-#'   fedstat_get_data_ids_special_cases_handle(
-#'     filter_value_title_alias_lookup_table = data.frame(
-#'       "filter_value_title" = "Dalnevostochnyj federalnyj okrug ( s 03.11.2018)",
-#'       "filter_value_title_alias" = "Dalnevostochnyj federalnyj okrug"
-#'     )
-#'   ) %>%
+#' data <- fedstat_get_data_ids("31074") %>%
 #'   fedstat_data_ids_filter(
 #'     filters = list(
 #'       "Territory" = "Russian Federation",
-#'       "Year" = "2021",
-#'       "Period" = c(21, 22),
+#'       "Year" = "2023",
+#'       "Period" = "January",
 #'       "Types of goods and services" = "*"
 #'     )
 #'   ) %>%
 #'   fedstat_post_data_ids_filtered()
 #'
-#' # In this example names for DVFO are latinized for CRAN
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
 fedstat_post_data_ids_filtered <- function(data_ids,
@@ -58,79 +48,47 @@ fedstat_post_data_ids_filtered <- function(data_ids,
                                            data_format = c("sdmx", "excel"),
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
-                                           httr_verbose = httr::verbose(data_out = FALSE)) {
+                                           httr_verbose = NULL) {
+
+  # workaround for `:=` and CMD check
+  filter_field_id <- filter_value_id <- NULL
+
+  data_ids <- data.table::as.data.table(data_ids)
+
   data_format <- match.arg(data_format, data_format)
-  POST_URL <- paste0(FEDSTAT_URL_BASE, "/indicator/data.do?format=", data_format)
-  filter_field <- "selectedFilterIds"
+  POST_URL <- paste0("https://www.fedstat.ru/indicator/data.do?format=", data_format)
 
-  indicator_id_and_title <- data_ids[
-    data_ids[["filter_field_id"]] == "0",
-    c("filter_value_id", "filter_value_title"),
-    drop = TRUE
-  ]
+  indicator <- data_ids[filter_field_id == "0", c("filter_value_id", "filter_value_title")]
 
-  indicator_id <- indicator_id_and_title[["filter_value_id"]]
-  indicator_title <- indicator_id_and_title[["filter_value_title"]]
+  filters <- unique(data_ids, by = "filter_field_id")[, c("filter_field_id", "filter_field_object_ids")]
 
-  data_ids_unique_filters <- dplyr::distinct(data_ids,
-    .data[["filter_field_id"]],
-    .keep_all = TRUE
-  ) %>%
-    dplyr::arrange(.data[["filter_field_object_ids_order"]])
+  filters_list <- as.list(filters[["filter_field_id"]]) %>%
+    `names<-`(filters[["filter_field_object_ids"]])
 
-  object_ids_filters <- as.list(data_ids_unique_filters[["filter_field_id"]]) %>%
-    `names<-`(data_ids_unique_filters[["filter_field_object_ids"]])
+  filter_values <- data_ids[, .(filter_string = paste0(filter_field_id, "_", filter_value_id))][["filter_string"]] %>%
+    as.list()
 
-  data_ids_filtered_POST_body <- data_ids %>%
-    dplyr::summarise(
-      filter_string = paste0(.data[["filter_field_id"]], "_", .data[["filter_value_id"]])
-    ) %>%
-    dplyr::pull("filter_string") %>%
-    as.list() %>%
-    `names<-`(rep(filter_field, length(.)))
-
+  names(filter_values) <- (rep("selectedFilterIds", length(filter_values)))
 
   POST_body <- c(
     list(
       "format" = data_format,
-      "id" = indicator_id,
-      "indicator_title" = indicator_title
+      "id" = indicator[["filter_value_id"]],
+      "indicator_title" = indicator[["filter_value_title"]]
     ),
-    object_ids_filters,
-    data_ids_filtered_POST_body
+    filters_list,
+    filter_values
   )
 
-  POST_res <- tryCatch(
-    expr = httr::RETRY(
-      "POST",
-      POST_URL,
-      httr_verbose,
-      httr::timeout(timeout_seconds),
-      times = retry_max_times,
-      body = POST_body,
-      ... = ...
-    ),
-    error = function(cond) {
-      if (cond[["call"]] == str2lang("f(init, x[[i]])")
-      && cond[["message"]] == "is.request(y) is not TRUE") {
-        stop("Passed invalid arguments to ... argument, ",
-          "did you accidentally passed filters to ...? ",
-          "All arguments after ... must be explicitly named",
-          call. = FALSE
-        )
-      } else {
-        stop(cond)
-      }
-    }
+  POST_res <- httr::RETRY("POST", POST_URL, httr_verbose, httr::timeout(timeout_seconds),
+    times = retry_max_times, body = POST_body, ...
   )
 
   if (httr::http_error(POST_res)) {
     httr::http_condition(POST_res, type = "error")
-  } else if (!(POST_res[["headers"]][["content-type"]]
-  %in% c("text/xml", "application/vnd.ms-excel"))) {
-    stop(
-      "No data found with specified filters or the fedstat is lagging"
-    )
+  } else
+  if (!(POST_res[["headers"]][["content-type"]] %in% c("text/xml", "application/vnd.ms-excel"))) {
+    stop("No data found with specified filters or the fedstat is lagging")
   }
 
   return(POST_res[["content"]])

@@ -1,15 +1,10 @@
-# fedstatAPIr 0.2.0
+# fedstatAPIr 1.0.0
 
-* `fedstat_data_ids_filter` by default `filters` arg is set to `list()` (e.g. select all possible filters)
-* `fedstat_data_load_with_filters` the interface has been changed a little bit, `...` (dots) 
-were added as a *second* argument to pass additional arguments to `httr::GET` and `httr::POST`. 
-Also `timeout_seconds` and `retry_max_times` arguments were added to `fedstat_data_load_with_filters`
-which are passed to `fedstat_get_data_ids` and `fedstat_post_data_ids_filtered`
-* `fedstat_get_data_ids` the interface has been changed a little bit, `...` (dots) were added as a second argument to pass additional arguments to `httr::GET`
-* `fedstat_post_data_ids_filtered` the interface has been changed a little bit, `...` (dots) were added as a *second* argument to pass additional arguments to `httr::POST`
-* An error handler has been added for a new change to the public interface (about dots) for faster user adaptation
-* Title has been changed slightly (added Rosstat keyword)
-* New *experimental* functions (public: `fedstat_check_data_update`, `fedstat_prepare_reference_data_for_check_data_update`, internal: `fedstat_check_data_update_`)
-for checking indicator data for updates on fedstat.ru
-* Many changes to the code, bug fixes, refactoring, optimization. Removed dependency on the `rsdmx` package because of its memory leaks
-* The dataset of all available indicators on fedstat.ru was added to the package (`fedstat_indicators_names_database`)
+* removed all dependencies except httr, jsonlite, xml2, readsdmx, magrittr, utils, methods, data.table for much easier installation
+* backend of all functions rewritten in data.table
+* new features: it's now possible to load database full dictionary from sdmx by providing new argument `return_type` to `fedstat_parse_sdmx_to_table`, obervation value in data is now parsed from character to numeric type automatically
+* fixed some old problems with russian encoding data fields and filters by converting to UTF-8
+* removed all functions related to automatic data update checks (`fedstat_check_data_update`, `fedstat_prepare_reference_data_for_check_data_update`), were experemental, too complex and not a main part of a package
+* removed function `fedstat_get_data_ids_special_cases_handle`, no longer needed due to change of upstream API
+* new function `fedstat_indicator_info` - allows to update database of all indicators by user
+* user interface to the package (except deleted functions) has not changed, some non-significant default arguments have been changed or added
