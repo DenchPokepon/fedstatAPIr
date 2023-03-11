@@ -74,8 +74,10 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   str_norm <- function(x) tolower(gsub("\\s+", " ", trimws(x)))
 
+  if (is.character(names(filters))) {
+    names(filters) <- enc2utf8(names(filters))
+  }
   filters <- lapply(filters, enc2utf8) # encoding should be UTF-8
-  names(filters) <- enc2utf8(names(filters))
 
   data_ids <- data.table::as.data.table(data_ids) %>%
     data.table::copy()

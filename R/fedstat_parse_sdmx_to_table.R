@@ -6,7 +6,7 @@
 #' Can also return full data codes dictionary for the indicator
 #'
 #' @param data_raw sdmx raw bytes
-#' @param return_type character, "data" or "dicionary", data for actual data,
+#' @param return_type character, "data" or "dictionary", data for actual data,
 #' dictionary for sdmx lookup table (full data codes dictionary)
 #' @param try_to_parse_ObsValue logical, try to parse ObsValue column from character to R numeric type
 #'
