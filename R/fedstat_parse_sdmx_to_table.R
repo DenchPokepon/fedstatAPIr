@@ -54,8 +54,8 @@ fedstat_parse_sdmx_to_table <- function(data_raw, return_type = c("data", "dicti
   data <- readsdmx::read_sdmx(tmp_file) %>% data.table::as.data.table()
 
   names(data) <- iconv(names(data), "UTF-8", "UTF-8") # repair cyrillic symbols encoding
-  names(data) <- sub(x = names(data), "X(\\d+)\\.", "\\1-") # fix readsdmx renaming like "X30.ОКАТО" -> "30-ОКАТО"
-  names(data) <- sub(x = names(data), "X(\\d)", "\\1") # fix readsdmx renaming line "X2" - > "2"
+  names(data) <- sub(x = names(data), "^X(\\d+)\\.", "\\1-") # fix readsdmx renaming like "X30.ОКАТО" -> "30-ОКАТО"
+  names(data) <- sub(x = names(data), "^X(\\d)", "\\1") # fix readsdmx renaming line "X2" - > "2"
 
   if (file.exists(tmp_file)) file.remove(tmp_file)
 
