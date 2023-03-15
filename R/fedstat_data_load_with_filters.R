@@ -108,10 +108,10 @@ fedstat_data_load_with_filters <- function(indicator_id,
 
   if (loading_steps_verbose) cat("Parsing data ...\n")
   data_data_frame <- fedstat_parse_sdmx_to_table(
-    data_raw = data_raw, 
-    return_type = return_type, 
+    data_raw = data_raw,
+    return_type = return_type,
     try_to_parse_ObsValue = try_to_parse_ObsValue
-    )
+  )
 
   if (loading_steps_verbose) cat("Done\n")
 

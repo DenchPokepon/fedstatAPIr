@@ -55,6 +55,7 @@ fedstat_parse_sdmx_to_table <- function(data_raw, return_type = c("data", "dicti
 
   names(data) <- iconv(names(data), "UTF-8", "UTF-8") # repair cyrillic symbols encoding
   names(data) <- sub(x = names(data), "X(\\d+)\\.", "\\1-") # fix readsdmx renaming like "X30.ОКАТО" -> "30-ОКАТО"
+  names(data) <- sub(x = names(data), "X(\\d)", "\\1") # fix readsdmx renaming line "X2" - > "2"
 
   if (file.exists(tmp_file)) file.remove(tmp_file)
 
@@ -91,6 +92,15 @@ fedstat_parse_sdmx_to_table <- function(data_raw, return_type = c("data", "dicti
 
   field_ids <- codelist_tbl[["field_id"]] %>%
     unique()
+
+  if (length(setdiff(field_ids, names(data))) != 0L) {
+    stop(
+      "Expected columns not found in data: ",
+      setdiff(field_ids, names(data)), "\n",
+      "there are only these columns in the data: ", paste(names(data), collapse = ", "),
+      "\nIt's likely to be an encoding or parsing error, please report this issue on github repository of this package"
+    )
+  }
 
   data_res <- lapply(field_ids, function(x) {
     codelist_tbl[field_id == x][

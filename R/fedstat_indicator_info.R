@@ -21,28 +21,33 @@ fedstat_indicator_info <- function() {
   html <- xml2::read_html("https://www.fedstat.ru/organizations/")
   items <- xml2::xml_find_all(html, xpath = '//*[@id="orgsTree"]/div')
 
-  list_dt <- lapply(items, function(x){
+  list_dt <- lapply(items, function(x) {
 
     children <- xml2::xml_child(x, 'div[@class="ved_child"]') %>% xml2::xml_children()
 
-    sublist_dt <- lapply(children, function(y){
+    sublist_dt <- lapply(children, function(y) {
 
       sub_children <- xml2::xml_child(y, 'div[@class="ved_child"]') %>%
         xml2::xml_find_all('div//*[@class="ved_item group i_actual"]')
 
       data.table(
         department =  xml2::xml_child(x, 'div//*[@class="i_name org"]') %>% xml2::xml_text(),
-        group = xml2::xml_child(y, 'div[@class="ved_pl dtable group"]//*[@class="i_name org" or @class="i_name ci"]') %>% xml2::xml_text(),
-        id = xml2::xml_find_all(sub_children, 'a') %>% xml2::xml_attr("href") %>% sub(x = ., "/indicator/", ""),
+        group = xml2::xml_child(
+          y, 
+        'div[@class="ved_pl dtable group"]//*[@class="i_name org" or @class="i_name ci"]'
+        ) %>%
+        xml2::xml_text(),
+        id = xml2::xml_find_all(sub_children, "a") %>% xml2::xml_attr("href") %>% sub(x = ., "/indicator/", ""),
         title = xml2::xml_find_all(sub_children, 'a//*[@class="i_name"]') %>% xml2::xml_text()
       )
     })
 
     data.table::rbindlist(sublist_dt, use.names = TRUE)
-  }) %>% suppressWarnings()
+  }) %>%
+  suppressWarnings()
 
   data.table::rbindlist(list_dt, use.names = TRUE)[!is.na(id), ][
-    ,`:=`(hidden = data.table::fifelse(id == "#", TRUE, FALSE), indx =1)][
+    , `:=`(hidden = data.table::fifelse(id == "#", TRUE, FALSE), indx = 1)][
       , indx := cumsum(indx), by = "id"][
         , `:=`(id = data.table::fifelse(id == "#", paste0(id, indx), id), indx = NULL)] %>%
     unique(by = c("department", "group", "id")) %>%
