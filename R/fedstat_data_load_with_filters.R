@@ -26,8 +26,9 @@
 #'   `filter_value_title` currently supports the following special values:
 #'   1. asterix (*), alias for "select all possible filter values for this filter field"
 #'
-#'   Unspecified filters use asterix as a default
-#'   (i.e. all possible filter values are selected and a warning is given)
+#'   All filter fields with more than one possible value must be explicitly
+#'   specified in `filters`. Use `"*"` to select all values.
+#'   Unspecified multi-value filters will produce an error.
 #'
 #'   Internally normalized `filter_field_title` and `filter_value_title` are
 #'   used (all lowercase, removed extra whitespaces)
@@ -76,44 +77,82 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            loading_steps_verbose = TRUE,
                                            return_type = c("data", "dictionary"),
                                            try_to_parse_ObsValue = TRUE) {
-  if (loading_steps_verbose) {
-    cat(
-      "Downloading EMISS internal identificators for the https://www.fedstat.ru/indicator/",
-      indicator_id, " ...\n",
-      sep = ""
+
+  last_error <- NULL
+
+  for (attempt in seq_len(retry_max_times)) {
+    if (attempt > 1 && loading_steps_verbose) {
+      cat("Retry attempt ", attempt, " of ", retry_max_times, " ...\n", sep = "")
+    }
+
+    if (loading_steps_verbose) {
+      cat(
+        "Downloading EMISS internal identificators for the https://www.fedstat.ru/indicator/",
+        indicator_id, " ...\n",
+        sep = ""
+      )
+    }
+
+    data_ids <- tryCatch(
+      fedstat_get_data_ids(
+        indicator_id,
+        ... = ...,
+        timeout_seconds = timeout_seconds,
+        retry_max_times = retry_max_times,
+        httr_verbose = httr_verbose
+      ),
+      error = function(e) {
+        last_error <<- e
+        NULL
+      }
     )
+
+    if (is.null(data_ids)) {
+      if (attempt == retry_max_times) stop(last_error)
+      if (loading_steps_verbose) cat("GET failed, retrying ...\n")
+      next
+    }
+
+    data_ids_filtered <- fedstat_data_ids_filter(
+      data_ids = data_ids,
+      filters = filters,
+      disable_warnings = disable_warnings
+    )
+
+    if (loading_steps_verbose) cat("Downloading data from EMISS ...\n")
+    data_raw <- tryCatch(
+      fedstat_post_data_ids_filtered(
+        data_ids = data_ids_filtered,
+        ... = ...,
+        timeout_seconds = timeout_seconds,
+        retry_max_times = retry_max_times,
+        httr_verbose = httr_verbose
+      ),
+      error = function(e) {
+        last_error <<- e
+        NULL
+      }
+    )
+
+    if (!is.null(data_raw)) {
+      if (loading_steps_verbose) cat("Parsing data ...\n")
+      data_data_frame <- fedstat_parse_sdmx_to_table(
+        data_raw = data_raw,
+        return_type = return_type,
+        try_to_parse_ObsValue = try_to_parse_ObsValue
+      )
+
+      if (loading_steps_verbose) cat("Done\n")
+      return(data_data_frame)
+    }
+
+    # POST failed -- re-fetch token on next attempt (CSRF tokens are single-use)
+    if (attempt < retry_max_times && loading_steps_verbose) {
+      cat("POST failed: ", conditionMessage(last_error), "\n", sep = "")
+      cat("Re-fetching CSRF token ...\n")
+    }
   }
-  data_ids <- fedstat_get_data_ids(
-    indicator_id,
-    ... = ...,
-    timeout_seconds = timeout_seconds,
-    retry_max_times = retry_max_times,
-    httr_verbose = httr_verbose
-  )
 
-  data_ids_filtered <- fedstat_data_ids_filter(
-    data_ids = data_ids,
-    filters = filters,
-    disable_warnings = disable_warnings
-  )
-
-  if (loading_steps_verbose) cat("Downloading data from EMISS ...\n")
-  data_raw <- fedstat_post_data_ids_filtered(
-    data_ids = data_ids_filtered,
-    ... = ...,
-    timeout_seconds = timeout_seconds,
-    retry_max_times = retry_max_times,
-    httr_verbose = httr_verbose
-  )
-
-  if (loading_steps_verbose) cat("Parsing data ...\n")
-  data_data_frame <- fedstat_parse_sdmx_to_table(
-    data_raw = data_raw,
-    return_type = return_type,
-    try_to_parse_ObsValue = try_to_parse_ObsValue
-  )
-
-  if (loading_steps_verbose) cat("Done\n")
-
-  return(data_data_frame)
+  # All retries exhausted
+  stop(last_error)
 }

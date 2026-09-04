@@ -44,18 +44,15 @@ because of ASCII requirement for CRAN}
 
 \item{retry_max_times}{numeric, maximum number of tries to GET and POST \code{data_ids}}
 
-\item{disable_warnings}{bool, enables or disables following warnings:
-\enumerate{
-\item About non matched \code{filter_value_title} in \code{filters} and \code{filter_value_title} from \code{data_ids};
-\item About unspecified \code{filter_filed_title} in filters.
-}}
+\item{disable_warnings}{bool, enables or disables warnings about
+non matched \code{filter_value_title} in \code{filters} and \code{filter_value_title} from \code{data_ids}.}
 
 \item{httr_verbose}{\code{httr::verbose()} or NULL, outputs messages to the console
 about the processing of the request}
 
 \item{loading_steps_verbose}{logical, print data loading steps to console}
 
-\item{return_type}{character, "data" or "dicionary", data for actual data,
+\item{return_type}{character, "data" or "dictionary", data for actual data,
 dictionary for sdmx lookup table (full data codes dictionary)}
 
 \item{try_to_parse_ObsValue}{logical, try to parse ObsValue column from character to R numeric type}
@@ -92,8 +89,9 @@ filter values in \code{data_ids} to see if the strings are defined correctly
 \item asterix (*), alias for "select all possible filter values for this filter field"
 }
 
-Unspecified filters use asterix as a default
-(i.e. all possible filter values are selected and a warning is given)
+All filter fields with more than one possible value must be explicitly
+specified in \code{filters}. Use \code{"*"} to select all values.
+Unspecified multi-value filters will produce an error.
 
 Internally normalized \code{filter_field_title} and \code{filter_value_title} are
 used (all lowercase, removed extra whitespaces)
