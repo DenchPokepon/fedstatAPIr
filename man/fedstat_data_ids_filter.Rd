@@ -27,11 +27,8 @@ equal to "Russian Federation"
 Not actual filter field titles and filter values titles
 because of ASCII requirement for CRAN}
 
-\item{disable_warnings}{bool, enables or disables following warnings:
-\enumerate{
-\item About non matched \code{filter_value_title} in \code{filters} and \code{filter_value_title} from \code{data_ids};
-\item About unspecified \code{filter_filed_title} in filters.
-}}
+\item{disable_warnings}{bool, enables or disables warnings about
+non matched \code{filter_value_title} in \code{filters} and \code{filter_value_title} from \code{data_ids}.}
 }
 \value{
 data.frame, filtered \code{data_ids}
@@ -51,8 +48,9 @@ filter values in \code{data_ids} to see if the strings are defined correctly
 \item asterix (*), it's alias for "select all possible filter values for this filter field"
 }
 
-Unspecified filters use asterix as a default
-(i.e. all possible filter values are selected and a warning is given)
+All filter fields with more than one possible value must be explicitly
+specified in \code{filters}. Use \code{"*"} to select all values for a filter field.
+Filter fields with only one possible value are auto-selected.
 
 Internally normalized \code{filter_field_title} and \code{filter_value_title} are
 used (all lowercase, removed extra whitespaces)

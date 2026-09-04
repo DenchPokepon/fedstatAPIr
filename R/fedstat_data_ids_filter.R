@@ -12,8 +12,9 @@
 #'   `filter_value_title` currently supports the following special values:
 #'   1. asterix (*), it's alias for "select all possible filter values for this filter field"
 #'
-#'   Unspecified filters use asterix as a default
-#'   (i.e. all possible filter values are selected and a warning is given)
+#'   All filter fields with more than one possible value must be explicitly
+#'   specified in `filters`. Use `"*"` to select all values for a filter field.
+#'   Filter fields with only one possible value are auto-selected.
 #'
 #'   Internally normalized `filter_field_title` and `filter_value_title` are
 #'   used (all lowercase, removed extra whitespaces)
@@ -37,9 +38,8 @@
 #'    equal to "Russian Federation"
 #'   Not actual filter field titles and filter values titles
 #'    because of ASCII requirement for CRAN
-#' @param disable_warnings bool, enables or disables following warnings:
-#' 1. About non matched `filter_value_title` in `filters` and `filter_value_title` from `data_ids`;
-#' 2. About unspecified `filter_filed_title` in filters.
+#' @param disable_warnings bool, enables or disables warnings about
+#'   non matched `filter_value_title` in `filters` and `filter_value_title` from `data_ids`.
 #'
 #' @return data.frame, filtered `data_ids`
 #' @export
@@ -71,6 +71,15 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
     count <- filters_specified_by_user <- NULL
 
   original_columns_order <- names(data_ids)
+
+  # Preserve CSRF token and other fedstat attributes through data.table operations
+  fedstat_attrs <- list(
+    fedstat_csrf_token = attr(data_ids, "fedstat_csrf_token"),
+    fedstat_csrf_token_name = attr(data_ids, "fedstat_csrf_token_name"),
+    fedstat_indicator_id = attr(data_ids, "fedstat_indicator_id"),
+    fedstat_handle = attr(data_ids, "fedstat_handle"),
+    fedstat_base_url = attr(data_ids, "fedstat_base_url")
+  )
 
   str_norm <- function(x) tolower(gsub("\\s+", " ", trimws(x)))
 
@@ -178,47 +187,58 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
     )
   }
 
+  # --- Check for unspecified multi-value filters (Option C: error) ---
   # We remove one possible value only filters from filters argument to avoid
   # possible invalid specification of filter_value_title for these filter_fields_titles from user
-  filters_data_frame_norm_added_filters_ids_added_missing_filters <-
+  user_multi_value_filters <-
     anti_join(
       filters_data_frame_norm_added_filters_ids,
       data_ids_norm_one_value_only_filters,
       by = "filter_field_id"
     ) %>%
-    .[, filters_specified_by_user := TRUE] %>%
+    .[, filters_specified_by_user := TRUE]
+
+  # Find filter fields NOT specified by the user
+  not_specified <- anti_join(
+    data_ids_norm_unique_filters,
+    user_multi_value_filters,
+    by = "filter_field_id"
+  )
+
+  # Separate into single-value (auto-add silently) and multi-value (error)
+  not_specified_multi <- not_specified[
+    !filter_field_id %in% data_ids_norm_one_value_only_filters[["filter_field_id"]]
+  ]
+
+  if (nrow(not_specified_multi) > 0) {
+    missing_titles <- unique(not_specified_multi[["filter_field_title"]])
+    stop(
+      "The following filter fields must be explicitly specified in filters:\n",
+      paste("  -", missing_titles, collapse = "\n"),
+      "\n\nUse \"*\" to select all values for a filter field.",
+      "\nExample: list(\"", missing_titles[1], "\" = \"*\")",
+      "\n\nTo see all available filters, inspect the data_ids table from fedstat_get_data_ids().",
+      call. = FALSE
+    )
+  }
+
+  # Auto-add single-value-only filters
+  not_specified_single <- not_specified[
+    filter_field_id %in% data_ids_norm_one_value_only_filters[["filter_field_id"]]
+  ]
+
+  filters_data_frame_norm_added_filters_ids_added_missing_filters <-
     rbind(
-      anti_join(data_ids_norm_unique_filters, ., by = "filter_field_id")[
-        ,
-        c("filter_value_title", "filter_value_title.str_norm", "filters_specified_by_user") := .(
+      user_multi_value_filters,
+      not_specified_single[
+        , c("filter_value_title", "filter_value_title.str_norm", "filters_specified_by_user") := .(
           "*", "*", FALSE
         )
       ],
       use.names = TRUE
     )
 
-  unspecified_filter_fields <-
-    (filters_data_frame_norm_added_filters_ids_added_missing_filters[["filter_value_title"]] == "*" &
-      !filters_data_frame_norm_added_filters_ids_added_missing_filters[["filters_specified_by_user"]] &
-      !(
-        filters_data_frame_norm_added_filters_ids_added_missing_filters[["filter_field_id"]]
-        %in% data_ids_norm_one_value_only_filters[["filter_field_id"]]
-      )
-    )
-
-  if (any(unspecified_filter_fields) && !disable_warnings) {
-    warning(
-      "The following filter fields were not specified in filters: ",
-      paste(
-        filters_data_frame_norm_added_filters_ids_added_missing_filters[["filter_field_title"]][
-          unspecified_filter_fields
-        ],
-        collapse = ", "
-      ),
-      "\nUsing all possible filter values for these filter fields",
-      call. = FALSE
-    )
-  }
+  # --- End of Option C changes ---
 
   data_ids_norm_filtered_list <- vector(
     "list",
@@ -281,6 +301,12 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
   ) %>%
     as.data.frame()
 
+  result <- data_ids_norm_filtered_data_frame[, original_columns_order]
 
-  return(data_ids_norm_filtered_data_frame[, original_columns_order])
+  # Restore CSRF token and other fedstat attributes
+  for (attr_name in names(fedstat_attrs)) {
+    attr(result, attr_name) <- fedstat_attrs[[attr_name]]
+  }
+
+  return(result)
 }
