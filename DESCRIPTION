@@ -28,5 +28,5 @@ Imports:
     methods,
     data.table
 Depends: 
-    R (>= 2.10)
+    R (>= 3.5.0)
 Config/roxygen2/version: 8.1.0

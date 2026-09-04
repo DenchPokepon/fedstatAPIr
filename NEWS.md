@@ -3,6 +3,7 @@
 ## Breaking changes
 
 * Unspecified filter fields with multiple possible values now produce an informative error instead of silently selecting all values. Use `"*"` to explicitly select all values for a filter field. Single-value-only filters are still auto-selected. The error message lists all unspecified fields with an example of how to fix them.
+* Minimum R version raised from 2.10 to 3.5.0 (required by serialized data format).
 
 ## Bug fixes
 
@@ -21,6 +22,7 @@
 
 * Honest User-Agent header (`fedstatAPIr/1.1.0`) is now set by default. Users can override via `...` arguments or `httr::set_config()`.
 * `fedstat_post_data_ids_filtered()` no longer retries POST requests internally (CSRF tokens are single-use). Use the wrapper `fedstat_data_load_with_filters()` for automatic retries, or re-run from `fedstat_get_data_ids()` when using individual functions.
+* Refreshed `fedstat_indicators_names_database` (5224 indicators, new schema: department, group, id, title, hidden).
 
 # fedstatAPIr 1.0.0
 
