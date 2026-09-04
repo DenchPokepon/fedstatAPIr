@@ -5,18 +5,13 @@
 \alias{fedstat_indicators_names_database}
 \title{Database of all indicator names presented on the fedstat.ru with hierarchical grouping}
 \format{
-A data frame with 9335 rows and 10 variables:
+A data frame with the following variables:
 \describe{
-\item{name}{indicator name}
-\item{url}{indicator url}
-\item{excluded}{boolean, TRUE if indicator is not used and updated anymore}
-\item{department}{the name of the department from which the data is coming from}
-\item{group_level_2}{grouping of indicator}
-\item{group_level_3}{grouping of indicator}
-\item{group_level_4}{grouping of indicator}
-\item{group_level_5}{grouping of indicator}
-\item{group_level_6}{grouping of indicator}
-\item{date_of_update}{date of the last update of the current database}
+\item{department}{the name of the department from which the data comes}
+\item{group}{thematic grouping of the indicator}
+\item{id}{indicator id (used in URL and API calls)}
+\item{title}{indicator name/title}
+\item{hidden}{boolean, TRUE if indicator is hidden on the website}
 }
 }
 \source{
@@ -26,6 +21,10 @@ A data frame with 9335 rows and 10 variables:
 fedstat_indicators_names_database
 }
 \description{
-Allows researchers to search for interesting indicators more easily
+Allows researchers to search for interesting indicators more easily.
+The database can be refreshed by the user via \code{fedstat_indicator_info()}.
+}
+\details{
+The version shipped with the package was last refreshed on 2026-09-04.
 }
 \keyword{datasets}
