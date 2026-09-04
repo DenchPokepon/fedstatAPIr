@@ -1,13 +1,8 @@
 ## Resubmission
 
 ## Test environments
-* ubuntu 20.04, R 4.2.2
-* win 10 x86_64 (devel and R 4.2.2)
+* ubuntu 24.04, R 4.6.1
+* win 11 x86_64 (devel and R 4.6.1)
 
 ## R CMD check results
-There were no ERRORs, WARNINGs.
-1 NOTE:
-> * checking data for non-ASCII characters ... NOTE
-  Note: found 43825 marked UTF-8 strings
-
-
+There were no ERRORs, WARNINGs or NOTES
