@@ -1,6 +1,6 @@
 Package: fedstatAPIr
 Title: Unofficial API for Fedstat (Rosstat EMISS System) for Automatic and Efficient Data Queries
-Version: 1.0.3
+Version: 1.1.0
 Authors@R: c(
     person(given = "Denis",
            family = "Krylov",
@@ -18,7 +18,6 @@ BugReports: https://github.com/DenchPokepon/fedstatAPIr/issues
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
 Imports: 
     httr,
     jsonlite,
@@ -30,3 +29,4 @@ Imports:
     data.table
 Depends: 
     R (>= 2.10)
+Config/roxygen2/version: 8.1.0

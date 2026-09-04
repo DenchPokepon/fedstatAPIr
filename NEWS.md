@@ -1,3 +1,27 @@
+# fedstatAPIr 1.1.0
+
+## Breaking changes
+
+* Unspecified filter fields with multiple possible values now produce an informative error instead of silently selecting all values. Use `"*"` to explicitly select all values for a filter field. Single-value-only filters are still auto-selected. The error message lists all unspecified fields with an example of how to fix them.
+
+## Bug fixes
+
+* EMISS moved data download endpoint from `/indicator/data.do` to `/indicator/downloadData.do`. All download functions updated automatically -- no user code changes required.
+* Fixed pre-existing typo `ObsValues` -> `ObsValue` in `fedstat_parse_sdmx_to_table()` that caused the numeric parsing safety check to silently never fire.
+
+## New features
+
+* `fedstat_data_load_with_filters()` now automatically retries the full download pipeline (GET + filter + POST) on transient failures, re-fetching a fresh CSRF token on each attempt.
+* CSRF token is automatically extracted from the indicator page during `fedstat_get_data_ids()` and passed through the pipe chain via data.frame attributes.
+* HTTP session (cookies) are now persisted between the page GET and data POST via `httr::handle()`, also passed as a data.frame attribute.
+* Improved error messages: specific diagnostics for HTTP 302 (rejected filters), 403 (anti-bot), 503 (overloaded), HTML-instead-of-data responses, and CSRF token failures.
+* `fedstat_parse_sdmx_to_table()` now detects HTML error pages before attempting XML parsing, giving clearer error messages.
+
+## Other changes
+
+* Honest User-Agent header (`fedstatAPIr/1.1.0`) is now set by default. Users can override via `...` arguments or `httr::set_config()`.
+* `fedstat_post_data_ids_filtered()` no longer retries POST requests internally (CSRF tokens are single-use). Use the wrapper `fedstat_data_load_with_filters()` for automatic retries, or re-run from `fedstat_get_data_ids()` when using individual functions.
+
 # fedstatAPIr 1.0.0
 
 * removed all dependencies except httr, jsonlite, xml2, readsdmx, magrittr, utils, methods, data.table for much easier installation
