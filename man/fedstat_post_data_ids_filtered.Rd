@@ -22,9 +22,10 @@ or a result of \code{fedstat_data_ids_filter} to download subset of available da
 
 \item{data_format}{string, one of sdmx, excel}
 
-\item{timeout_seconds}{numeric, maximum time before a new POST request is tried}
+\item{timeout_seconds}{numeric, maximum time before POST request times out}
 
-\item{retry_max_times}{numeric, maximum number of tries to POST \code{data_ids}}
+\item{retry_max_times}{numeric, not used for POST (CSRF tokens are single-use),
+but used for fallback GET if CSRF token needs to be fetched}
 
 \item{httr_verbose}{\code{httr::verbose()} or NULL, outputs messages to the console
 about the processing of the request}
@@ -34,8 +35,17 @@ raw bytes (sdmx or excel)
 }
 \description{
 Creates a request body from \code{data_ids} and sends it to
-https://www.fedstat.ru/indicator/data.do?format={\code{data_format}}.
+\code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}.
 Gets an sdmx or excel with data in binary format.
+
+The request includes a CSRF token that is automatically extracted by
+\code{fedstat_get_data_ids} and passed through via data.frame attributes.
+CSRF tokens are single-use: each POST consumes the token. For subsequent
+downloads, call \code{fedstat_get_data_ids} again.
+
+If no CSRF token is found in \code{data_ids} attributes (e.g. when using cached
+data_ids from a previous session), the function will attempt to fetch a
+fresh token automatically with a warning.
 
 sdmx raw bytes can be passed to \code{fedstat_parse_sdmx_to_table} to create a
 data.frame or to \code{rawToChar} and \code{writeLines} to create an xml file

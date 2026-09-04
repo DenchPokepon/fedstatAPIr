@@ -14,16 +14,13 @@
 #' of 180 seconds and with initially small, but growing exponentially, pauses between requests.
 #'
 #' As a rule, requests to the indicator web page take much longer than requests
-#' to get the data itself. A POST request for data is sent to a single
-#' URL https://www.fedstat.ru/indicator/data.do?format=(excel or sdmx)
-#' for all indicators and is often quite fast. In this regard, for many indicators,
-#' it makes sense to cache `data_ids` to increase the speed of data download.
-#' This is not possible for all data, for example, for weekly prices,
-#' each new week adds a new filter (new week), the id of which can only be found on the indicator web page.
-#' But for most data (e.g. monthly frequency), time filters are trivial.
-#' There are 12 months in total with unique ids that do not change
-#' and year ids that match their values
-#' (that is, `filter_value_id` = `filter_value`, in other words 2020 = 2020)
+#' to get the data itself. A POST request for data is sent to
+#' \code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}
+#' for all indicators and is often quite fast.
+#'
+#' Note: CSRF tokens are single-use. Each call to \code{fedstat_post_data_ids_filtered}
+#' consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
+#' The wrapper function \code{fedstat_data_load_with_filters} handles this automatically.
 #'
 #' Correct filter_field_object_ids are needed to get data.
 #' For the sdmx format, these ids do not change anything,
@@ -32,6 +29,15 @@
 #' For the excel format, these ids determine the form of data presentation, as in the data preview on the fedstat site.
 #' For now only default filter_field_object_ids are used, which are parsed from java script source code on indicator web page.
 #' Users can specify filter_field_object_ids for each filter_field in resulting data_ids table.
+#'
+#' The returned data.frame also carries session and CSRF token metadata as attributes
+#' (\code{fedstat_handle}, \code{fedstat_base_url},
+#' \code{fedstat_csrf_token}, \code{fedstat_csrf_token_name}, \code{fedstat_indicator_id}).
+#' The \code{fedstat_handle} attribute holds an \code{httr::handle} object that preserves
+#' session cookies for the downstream POST request.
+#' These are used internally by \code{fedstat_post_data_ids_filtered} and must not be removed.
+#' Note: CSRF tokens are single-use -- each call to \code{fedstat_post_data_ids_filtered}
+#' consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
 #'
 #' @param indicator_id character, indicator id/code from indicator URL.
 #'   For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426
@@ -69,14 +75,18 @@ fedstat_get_data_ids <- function(indicator_id,
   # workaround for `:=` and CMD check
   filter_value_title <- filter_field_object_ids <- NULL
 
-  indicator_URL <- paste0("https://www.fedstat.ru/indicator/", indicator_id)
+  fedstat_base_url <- "https://www.fedstat.ru"
+  indicator_URL <- paste0(fedstat_base_url, "/indicator/", indicator_id)
+  fedstat_handle <- httr::handle(fedstat_base_url)
 
   GET_res <- tryCatch(
     expr = httr::RETRY(
       "GET",
       indicator_URL,
+      fedstat_default_config(),
       httr_verbose,
       httr::timeout(timeout_seconds),
+      handle = fedstat_handle,
       times = retry_max_times,
       ... = ...
     ),
@@ -95,10 +105,61 @@ fedstat_get_data_ids <- function(indicator_id,
   )
 
   if (httr::http_error(GET_res)) {
-    httr::http_condition(GET_res, type = "error")
+    status <- httr::status_code(GET_res)
+    if (status == 403) {
+      stop("EMISS returned 403 (Forbidden) for indicator ", indicator_id, ". ",
+           "Your request was likely blocked by anti-bot protection. ",
+           "Try passing custom headers via httr::set_config(httr::add_headers(...)). ",
+           "See package README for details.",
+           call. = FALSE)
+    } else if (status == 503) {
+      stop("EMISS returned 503 (Service Unavailable) for indicator ", indicator_id, ". ",
+           "The server is overloaded. Try again later.",
+           call. = FALSE)
+    } else {
+      stop("EMISS returned HTTP ", status, " for indicator ", indicator_id, ".",
+           call. = FALSE)
+    }
   }
 
   GET_html <- xml2::read_html(GET_res, encoding = "UTF-8")
+
+  # --- Extract CSRF token from downloadTokenHolder div ---
+  csrf_token <- NULL
+  csrf_token_name <- NULL
+
+  token_holder <- xml2::xml_find_all(
+    GET_html, ".//div[@id='downloadTokenHolder']"
+  )
+
+  if (length(token_holder) > 0) {
+    holder_div <- token_holder[[1]]
+
+    token_name_input <- xml2::xml_find_first(
+      holder_div, ".//input[@name='struts.token.name']"
+    )
+    candidate_name <- xml2::xml_attr(token_name_input, "value")
+
+    if (!is.na(candidate_name)) {
+      csrf_token_name <- candidate_name
+      token_input <- xml2::xml_find_first(
+        holder_div,
+        paste0(".//input[@name='", csrf_token_name, "']")
+      )
+      candidate_token <- xml2::xml_attr(token_input, "value")
+
+      if (!is.na(candidate_token)) {
+        csrf_token <- candidate_token
+      }
+    }
+  }
+
+  if (is.null(csrf_token)) {
+    warning("Could not extract CSRF token from indicator page for ", indicator_id, ". ",
+            "fedstat_post_data_ids_filtered() will attempt to fetch one automatically.",
+            call. = FALSE)
+  }
+  # --- End CSRF extraction ---
 
   js_script <- xml2::xml_find_all(GET_html, ".//script")[[12]] %>% # 12 - Empirically determined value
     xml2::xml_text() %>%
@@ -147,10 +208,19 @@ fedstat_get_data_ids <- function(indicator_id,
     stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")
   }
 
-  filter_dt[, filter_field_object_ids := data.table::fifelse(
+  result <- filter_dt[, filter_field_object_ids := data.table::fifelse(
     is.na(filter_field_object_ids),
     "lineObjectIds",
     filter_field_object_ids
   )][] %>%
     as.data.frame()
+
+  # Attach CSRF token and indicator_id as attributes for downstream use
+  attr(result, "fedstat_csrf_token") <- csrf_token
+  attr(result, "fedstat_csrf_token_name") <- csrf_token_name
+  attr(result, "fedstat_indicator_id") <- as.character(indicator_id)
+  attr(result, "fedstat_handle") <- fedstat_handle
+  attr(result, "fedstat_base_url") <- fedstat_base_url
+
+  return(result)
 }

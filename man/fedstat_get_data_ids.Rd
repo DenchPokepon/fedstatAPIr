@@ -51,16 +51,13 @@ In this regard, by default, a GET request is sent 3 times with a timeout
 of 180 seconds and with initially small, but growing exponentially, pauses between requests.
 
 As a rule, requests to the indicator web page take much longer than requests
-to get the data itself. A POST request for data is sent to a single
-URL https://www.fedstat.ru/indicator/data.do?format=(excel or sdmx)
-for all indicators and is often quite fast. In this regard, for many indicators,
-it makes sense to cache \code{data_ids} to increase the speed of data download.
-This is not possible for all data, for example, for weekly prices,
-each new week adds a new filter (new week), the id of which can only be found on the indicator web page.
-But for most data (e.g. monthly frequency), time filters are trivial.
-There are 12 months in total with unique ids that do not change
-and year ids that match their values
-(that is, \code{filter_value_id} = \code{filter_value}, in other words 2020 = 2020)
+to get the data itself. A POST request for data is sent to
+\code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}
+for all indicators and is often quite fast.
+
+Note: CSRF tokens are single-use. Each call to \code{fedstat_post_data_ids_filtered}
+consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
+The wrapper function \code{fedstat_data_load_with_filters} handles this automatically.
 
 Correct filter_field_object_ids are needed to get data.
 For the sdmx format, these ids do not change anything,
@@ -69,6 +66,15 @@ but their incorrect specification will lead either to incomplete data loading or
 For the excel format, these ids determine the form of data presentation, as in the data preview on the fedstat site.
 For now only default filter_field_object_ids are used, which are parsed from java script source code on indicator web page.
 Users can specify filter_field_object_ids for each filter_field in resulting data_ids table.
+
+The returned data.frame also carries session and CSRF token metadata as attributes
+(\code{fedstat_handle}, \code{fedstat_base_url},
+\code{fedstat_csrf_token}, \code{fedstat_csrf_token_name}, \code{fedstat_indicator_id}).
+The \code{fedstat_handle} attribute holds an \code{httr::handle} object that preserves
+session cookies for the downstream POST request.
+These are used internally by \code{fedstat_post_data_ids_filtered} and must not be removed.
+Note: CSRF tokens are single-use -- each call to \code{fedstat_post_data_ids_filtered}
+consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
 }
 \examples{
 \dontrun{
