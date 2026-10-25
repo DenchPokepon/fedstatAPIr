@@ -5,7 +5,7 @@ small fixtures, without a test framework or live Fedstat traffic.
 
 ```sh
 R CMD build .
-R CMD check --as-cran fedstatAPIr_1.1.0.9004.tar.gz
+R CMD check --as-cran fedstatAPIr_1.1.0.9005.tar.gz
 ```
 
 For a quicker iteration after installing the source:
@@ -17,7 +17,7 @@ Rscript tests/regression.R
 
 Coverage includes metadata/session separation, HTTP configuration, typed errors,
 SDMX parsing, duplicate keys, bounded retries, token GET recovery, post-refresh
-redirect subdivision, cooldown recovery, Retry-After, request budgets,
+redirect subdivision, cooldown recovery, Retry-After, time allowances,
 interruptions, log contents, checkpoint integrity and old flat-folder resume.
 Warnings are logged but retain normal R warning semantics.
 
@@ -64,7 +64,7 @@ In Windows Command Prompt, first run `set FEDSTAT_LIVE=1`, then
 This requests indicator 37089 for Primorsky Krai in 2010 and 2011. It compares an
 unsplit export with two one-cell parts, tests token reuse and checks that completed
 resume needs no network. Requests are sequential with 30-second pauses and a
-bounded request count. The output folder contains the raw baseline and saved parts.
+ten-minute batch allowance. The output folder contains the raw baseline and saved parts.
 A pass describes that indicator/selection at that time, not the whole API.
 
 ## Price workload and diagnostic files
@@ -77,7 +77,7 @@ Rscript tools/prices.R ../fedstat-price-check
 Defaults: indicator 31074, January 2024, all territories, goods and indicator
 types. Optional positional arguments are output directory, year and period label.
 This is one month, not the entire historical dataset. The script requires version
-1.1.0.9004 or later, prints warnings immediately and saves session information.
+1.1.0.9005 or later, prints warnings immediately and saves session information.
 
 The default allowance is one hour per invocation, including requests, pauses and
 retries. There is no HTTP-count ceiling. `max_combinations` controls partition

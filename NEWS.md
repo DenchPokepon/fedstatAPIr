@@ -3,18 +3,18 @@
 * Batch downloads now default to a one-hour time allowance, without an HTTP-count
   ceiling. Requests and pauses share it; expiry preserves resumable progress.
 * `max_combinations` replaces `max_cells` with the same size default. Explicit
-  old arguments remain supported with migration messages; see `MIGRATION.md`.
+  uses of `max_cells` remain supported with migration messages; see `MIGRATION.md`.
 
 * Older curl callback-abort errors now propagate as interrupts, with no retry or
   network-error report. The price-check script exits cleanly on cancellation.
 * Response sniffing handles UTF-8 characters cut by the inspection window without
   spurious warnings or changes to the downloaded data.
-* Console progress labels the HTTP request ceiling explicitly and shows the
-  active partition-size setting at startup.
+* Console progress shows request counts; startup reports the time allowance and
+  active partition-size setting.
 
 * Batch downloads recover automatically after bounded cooldowns, separately retry
   transient token GETs, and subdivide ambiguous export rejections after session
-  repair. Every request still counts toward the original invocation budget.
+  repair. Recovery shares the original invocation time allowance.
 * Warnings are included in diagnostic logs; stop messages distinguish exhausted
   budgets from persistent failures.
 * New downloads store data in `parts/`. Existing flat checkpoints resume unchanged.
@@ -22,7 +22,7 @@
   English documentation is provided separately.
 
 * Batch downloads now append timestamped JSON Lines to `download.log`, independent
-  of console verbosity. Events include request budgets/stages, waits, timings,
+  of console verbosity. Events include request counts/stages, waits, timings,
   byte counts, token refreshes, split dimensions/reasons and saved progress.
 * All failures and interruptions after job setup receive a recovery summary.
 * Completion now includes disk-based validation of keys across parts; duplicate
@@ -34,7 +34,7 @@
 * Existing exported function names, arguments, defaults and successful return
   types are preserved. No call-site migration is required.
 * Added `fedstat_download()` for sequential, resumable downloads, with explicit
-  request-size, token-reuse, retry and request-budget controls. Verified RDS
+  request-size, token-reuse, retry and time-allowance controls. Verified RDS
   parts require no additional packages; `fedstat_collect()` loads them.
 * HTTP configuration now reaches fallback token GETs. Global httr configuration
   and per-call headers override package defaults. Existing timeouts still bound

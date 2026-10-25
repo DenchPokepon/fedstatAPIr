@@ -14,7 +14,6 @@ fedstat_download(
   timeout_seconds = 180,
   retry_max_times = 2L,
   request_pause = c(30, 60),
-  max_requests = NULL,
   max_depth = 20L,
   max_failures = 6L,
   verbose = TRUE,
@@ -51,9 +50,6 @@ all attempts share the invocation's time allowance.}
 
 \item{request_pause}{Seconds to wait between HTTP requests: a number or a
 two-number range for random pauses. Retry delays and Retry-After can extend it.}
-
-\item{max_requests}{Deprecated optional HTTP ceiling. Defaults to \code{NULL} (none).
-Explicit values remain enforced for compatibility; prefer \code{time_limit_seconds}.}
 
 \item{max_depth}{Maximum binary subdivisions from the original selection.}
 

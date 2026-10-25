@@ -1,8 +1,8 @@
 # Compatibility and recovery
 
-No existing exported function was renamed or removed. Existing arguments,
-positional calling conventions and successful return types remain. The batch
-downloader default budget changes in 1.1.0.9004 as described below.
+The six previously released functions retain their names, arguments, defaults
+and successful return types. The new batch downloader uses the time allowance
+described below.
 The new `fedstat_download()` and `fedstat_collect()` functions are optional.
 
 ## Existing pipelines
@@ -40,7 +40,7 @@ Ordinary `tryCatch(..., error = ...)` still works. Prefer condition classes and
 | `fedstat_blocked` | HTTP 403 or access challenge | Stop |
 | `fedstat_unexpected_response` | HTML or unexpected media | Batch jobs may probe smaller parts after one session repair; never assume empty data |
 | `fedstat_metadata`, `fedstat_parse` | Unexpected page/export structure | Inspect; do not subdivide |
-| `fedstat_truncated` | Source explicitly reports truncation | Subdivide within the request budget |
+| `fedstat_truncated` | Source explicitly reports truncation | Subdivide within the time allowance |
 | `fedstat_budget`, `fedstat_unavailable` | Bounded job stopped | Progress remains; resume later |
 
 All these inherit from `fedstat_error` and `error`. `stage` distinguishes
@@ -57,11 +57,10 @@ parts. Scripts can use `tryCatch(..., interrupt = function(e)
 quit(save = "no", status = 130, runLast = FALSE))` to exit without an error report.
 The `curl_interrupt` option is enabled during requests and restored on exit.
 
-## Time allowance and request size (1.1.0.9004)
+## Time allowance and request size
 
 `fedstat_download()` now defaults to `time_limit_seconds = 3600` (one hour),
-with no HTTP-count ceiling. This replaces the previous implicit 1,000-request
-ceiling. Requests, pauses, retries and local processing share this allowance.
+with no HTTP-count ceiling. Requests, pauses, retries and local processing share this allowance.
 Requests are capped by remaining time; required pauses are never shortened to
 fit. Local parsing, validation and saving finish safely and may extend elapsed
 time. Expiry raises `fedstat_time_limit`, retaining verified parts. Repeat the
@@ -72,11 +71,9 @@ cardinalities, not a row count. Its default remains 100,000. Old explicit
 `max_cells` values still work and produce a `DEPRECATED` log event with the
 replacement name. Conflicting values supplied under both names raise an error.
 
-Old explicit `max_requests` ceilings remain enforced for compatibility and
-produce a `DEPRECATED` event. Remove that argument to use the time allowance
-alone. `tools/prices.R` now uses a one-hour allowance without a count ceiling.
-Console request counts remain informational; logs add `time_limit_seconds`,
-`remaining_seconds` and `max_combinations`, retaining the legacy JSON fields.
+`tools/prices.R` uses the same one-hour allowance. Console request counts are
+informational. Logs include `time_limit_seconds`, `remaining_seconds` and
+`max_combinations`; the earlier `max_cells` JSON field is retained.
 No saved-file migration or redownload is needed. For the Windows R 4.3 launcher
 caveat, see [tools/README.md](tools/README.md).
 
@@ -157,7 +154,7 @@ and `recovery_pause = 60`. After ordinary attempts are exhausted, recoverable
 failures wait at least 60, 120, then 240 seconds before trying unfinished work
 again. A saved part resets this counter. Set `recovery_max_times = 0` for the
 previous stop-after-retries behavior. No recovery is performed on cancellation,
-request/subdivision budget exhaustion, access refusal, invalid filters, parse
+time/subdivision budget exhaustion, access refusal, invalid filters, parse
 errors or storage errors. HTTP 429 respects Retry-After and never causes splitting.
 
 An ambiguous export redirect/HTML response rejected again after a token repair

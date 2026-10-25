@@ -27,8 +27,6 @@
 #'   all attempts share the invocation's time allowance.
 #' @param request_pause Seconds to wait between HTTP requests: a number or a
 #'   two-number range for random pauses. Retry delays and Retry-After can extend it.
-#' @param max_requests Deprecated optional HTTP ceiling. Defaults to `NULL` (none).
-#'   Explicit values remain enforced for compatibility; prefer `time_limit_seconds`.
 #' @param max_depth Maximum binary subdivisions from the original selection.
 #' @param max_failures Pause recovery after this many consecutive transient or
 #'   ambiguous export failures; this limits subdivision during an outage.
@@ -76,7 +74,7 @@
 fedstat_download <- function(indicator_id, ..., filters = list(), path,
                              max_cells = 100000, token_policy = c("reuse", "refresh"),
                              timeout_seconds = 180, retry_max_times = 2L,
-                             request_pause = c(30, 60), max_requests = NULL,
+                             request_pause = c(30, 60),
                              max_depth = 20L, max_failures = 6L, verbose = TRUE,
                              log_file = file.path(path, "download.log"),
                              recovery_max_times = 3L, recovery_pause = 60,
@@ -93,7 +91,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   for (name in c("max_combinations", "time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
     fedstat_positive(get(name), name, integer = name %in% c("max_combinations", "retry_max_times", "max_depth", "max_failures"))
   }
-  if (!is.null(max_requests)) fedstat_positive(max_requests, "max_requests", integer = TRUE)
   time_left <- function() {
     seconds <- time_limit_seconds - (fedstat_elapsed() - started)
     if (seconds < 0.001) fedstat_time_expired(time_limit_seconds)
@@ -137,7 +134,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   phase <- "startup"
   report <- fedstat_logger(log_file, indicator_id, verbose, function() {
     c(list(
-      request = requests, max_requests = max_requests, part = current_part,
+      request = requests, part = current_part,
       time_limit_seconds = time_limit_seconds,
       remaining_seconds = max(0, time_limit_seconds - (fedstat_elapsed() - started)),
       attempt = current_attempt, stage = phase
@@ -164,7 +161,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
     action <- if (inherits(e, "fedstat_time_limit")) {
       "Time allowance used. Repeat the same call to continue with a new time allowance."
     } else if (inherits(e, "fedstat_budget")) {
-      "Request or subdivision limit reached. Increase the indicated limit and repeat the same call to resume."
+      "Subdivision limit reached. Increase max_depth and repeat the same call to resume."
     } else if (retry) {
       "Automatic recovery stopped. Saved parts will be skipped on resume; inspect download.log if the same part fails again."
     } else {
@@ -197,7 +194,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
       recovery_max_times = recovery_max_times, recovery_pause = recovery_pause
       )
       if (legacy_cells) report("DEPRECATED", "max_cells is now max_combinations; the supplied value is retained. Rename this argument in your call.")
-      if (!is.null(max_requests)) report("DEPRECATED", "max_requests is deprecated but your explicit ceiling remains active. Remove it to use time_limit_seconds (default: 3600 seconds).")
       manifest <- if (file.exists(manifest_path)) readRDS(manifest_path) else NULL
       if (is.null(manifest) && length(list.files(c(path, file.path(path, "parts")), pattern = "^part-[0-9.]+[.]rds$"))) {
         stop("Saved parts exist without a manifest; restore manifest.rds or use a new path.", call. = FALSE)
@@ -239,11 +235,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         if (!possible || recoveries >= recovery_max_times) {
           return(FALSE)
         }
-        if (!is.null(max_requests) && requests >= max_requests) {
-          fedstat_error(
-            paste0("Request budget reached (", max_requests, "); repeat the call to resume."), "budget", "schedule"
-          )
-        }
         recoveries <<- recoveries + 1L
         delay <<- max(delay, recovery_pause * 2^min(recoveries - 1L, 6L), fedstat_backoff(recoveries, error))
         failures <<- 0L
@@ -258,11 +249,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
       }
       gate <- function() {
         time_left()
-        if (!is.null(max_requests) && requests >= max_requests) {
-          fedstat_error(
-            paste0("Request budget reached (", max_requests, "); repeat the call to resume."), "budget", "schedule"
-          )
-        }
         if (requests > 0L) {
           pause <- max(stats::runif(1L, min(request_pause), max(request_pause)), delay)
           if (pause >= time_left()) fedstat_time_expired(time_limit_seconds, waiting = TRUE)

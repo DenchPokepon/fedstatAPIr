@@ -22,7 +22,7 @@ remotes::install_github("DenchPokepon/fedstatAPIr")
 ```
 
 The examples below use `fedstat_download()` and require development version
-1.1.0.9004 or later.
+1.1.0.9005 or later.
 To install a downloaded source copy, run `R CMD INSTALL .` in its folder.
 
 ## Download data

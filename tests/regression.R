@@ -207,18 +207,30 @@ writeLines("damaged", file.path(path, part$file))
 expect_error(fedstat_collect(path), pattern = "missing or changed")
 unlink(path, recursive = TRUE)
 
-# Budget exhaustion preserves the first part; resume fetches only the unfinished part.
+# Expire the invocation while parsing a successful part; it must still be saved.
+expire_after_part <- function(code) {
+  clock <- 0
+  mock(
+    "fedstat_elapsed", function() clock,
+    mock("fedstat_parse_sdmx", function(data_raw, ...) {
+      clock <<- 3600
+      unserialize(data_raw)
+    }, force(code))
+  )
+}
+
+# Time exhaustion preserves the first part; resume fetches only the unfinished part.
 path <- tempfile()
 with_batch({
-  expect_error(fedstat_download("31074",
+  expire_after_part(expect_error(fedstat_download("31074",
     filters = "*", path = path, max_cells = 2,
-    request_pause = 0, max_requests = 2, verbose = FALSE, recovery_max_times = 0
-  ), "fedstat_budget")
+    request_pause = 0, verbose = FALSE, recovery_max_times = 0
+  ), "fedstat_time_limit"))
   m <- readRDS(file.path(path, "manifest.rds"))
   stopifnot(sum(vapply(m$parts, function(p) p$status == "complete", logical(1L))) == 1L)
   stopifnot(fedstat_download("31074",
     filters = "*", path = path, request_pause = 0,
-    max_requests = 2, verbose = FALSE, recovery_max_times = 0
+    verbose = FALSE, recovery_max_times = 0
   )$complete)
 })
 unlink(path, recursive = TRUE)
@@ -453,7 +465,7 @@ local({
     mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw), {
       job <- fedstat_download("31074",
         filters = list(Year = "*", Area = "First"), path = path,
-        request_pause = 0, recovery_pause = 0, max_requests = 10, verbose = FALSE
+        request_pause = 0, recovery_pause = 0, verbose = FALSE
       )
       stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L, posts == 4L, gets == 4L)
     })
@@ -483,32 +495,13 @@ local({
 })
 unlink(path, recursive = TRUE)
 
-# A spent request budget must not trigger an automatic restart or an extra request.
-path <- tempfile()
-with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
-  attr(data_ids, "fedstat_session")$before()
-  internal("fedstat_error")("empty reply", "transient", "token")
-}, mock(
-  "fedstat_backoff", function(...) 0,
-  expect_error(fedstat_download("31074",
-    filters = "*", path = path, request_pause = 0,
-    recovery_pause = 0, max_requests = 2, verbose = FALSE
-  ), "fedstat_budget")
-)))
-events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-stopifnot(
-  tail(events, 1L)[[1L]]$request == 2L,
-  !any(vapply(events, function(e) e$event == "RECOVER", logical(1L)))
-)
-unlink(path, recursive = TRUE)
-
 # Existing flat-layout checkpoints resume without moving or refetching saved data.
 path <- tempfile()
 with_batch({
-  expect_error(fedstat_download("31074",
+  expire_after_part(expect_error(fedstat_download("31074",
     filters = "*", path = path, max_cells = 2,
-    request_pause = 0, max_requests = 2, verbose = FALSE
-  ), "fedstat_budget")
+    request_pause = 0, verbose = FALSE
+  ), "fedstat_time_limit"))
   m <- readRDS(file.path(path, "manifest.rds"))
   m$parts_dir <- NULL
   for (i in seq_along(m$parts)) {
@@ -521,7 +514,7 @@ with_batch({
   saveRDS(m, file.path(path, "manifest.rds"))
   unlink(file.path(path, "parts"), recursive = TRUE)
   job <- fedstat_download("31074",
-    filters = "*", path = path, max_requests = 2,
+    filters = "*", path = path,
     request_pause = 0, verbose = FALSE
   )
   stopifnot(job$complete, !dir.exists(file.path(path, "parts")), nrow(fedstat_collect(job)) == 4L)
@@ -586,21 +579,30 @@ for (status in c(429L, 403L)) {
 }
 cat("Rate limit and access refusal regression tests passed.\n")
 
-# Exhausting the budget at the failure limit must not announce a cooldown it cannot run.
-path <- tempfile()
-with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
-  attr(data_ids, "fedstat_session")$before()
-  internal("fedstat_error")("redirect", "redirect", "export", 302L)
-}, mock(
-  "fedstat_backoff", function(...) 0,
-  expect_error(fedstat_download("31074",
-    filters = "*", path = path, request_pause = 0,
-    recovery_pause = 0, max_requests = 2, max_failures = 1, verbose = FALSE
-  ), "fedstat_budget")
-)))
-events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-stopifnot(!any(vapply(events, function(e) e$event == "RECOVER", logical(1L))))
-unlink(path, recursive = TRUE)
+# Expiry at the failure limit must not announce a cooldown it cannot run.
+local({
+  path <- tempfile()
+  on.exit(unlink(path, recursive = TRUE))
+  clock <- 0
+  calls <- 0L
+  with_batch(mock(
+    "fedstat_elapsed", function() clock,
+    mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
+      attr(data_ids, "fedstat_session")$before()
+      calls <<- calls + 1L
+      clock <<- 3600
+      internal("fedstat_error")("redirect", "redirect", "export", 302L)
+    }, expect_error(fedstat_download("31074",
+      filters = "*", path = path,
+      request_pause = 0, max_failures = 1, verbose = FALSE
+    ), "fedstat_time_limit"))
+  ))
+  events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+  stopifnot(
+    calls == 1L,
+    !any(vapply(events, function(e) e$event == "RECOVER", logical(1L)))
+  )
+})
 
 # A 64 KiB sniff can end halfway through a valid UTF-8 character. It only scans
 # ASCII markers and must not warn or alter the complete response bytes.
@@ -665,7 +667,7 @@ for (typed in c(FALSE, TRUE)) {
   })
 }
 
-# Request budget and partition size are independent; console output names both.
+# Time allowance and partition size are independent; console output names both.
 local({
   output <- character()
   for (cells in c(1L, 4L)) {
@@ -674,7 +676,7 @@ local({
       {
         job <- fedstat_download("31074",
           filters = "*", path = path, max_cells = cells,
-          max_requests = 40L, request_pause = 0
+          request_pause = 0
         )
         stopifnot(nrow(job$parts) == if (cells == 1L) 4L else 1L)
       },
@@ -684,11 +686,11 @@ local({
       }
     ))
     events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-    stopifnot(events[[1L]]$max_cells == cells, events[[1L]]$max_requests == 40L)
+    stopifnot(events[[1L]]$max_cells == cells, events[[1L]]$time_limit_seconds == 3600)
     unlink(path, recursive = TRUE)
   }
   stopifnot(
-    any(grepl("HTTP 1; legacy limit 40", output, fixed = TRUE)),
+    any(grepl("[HTTP 1", output, fixed = TRUE)),
     any(grepl("max_combinations=4; time limit: 3600 s", output, fixed = TRUE))
   )
 })
@@ -696,7 +698,6 @@ cat("Cancellation, byte-sniffing and progress regression tests passed.\n")
 
 # Time is the default allowance; legacy names retain their explicit meaning.
 stopifnot(
-  is.null(formals(fedstat_download)$max_requests),
   formals(fedstat_download)$time_limit_seconds == 3600
 )
 expect_error(fedstat_download("31074",
