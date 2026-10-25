@@ -6,7 +6,7 @@ args <- commandArgs(trailingOnly = TRUE)
 path <- if (length(args)) args[[1L]] else "fedstat-price-check"
 year <- if (length(args) >= 2L) args[[2L]] else "2024"
 month <- if (length(args) >= 3L) args[[3L]] else "\u044f\u043d\u0432\u0430\u0440\u044c"
-if (packageVersion("fedstatAPIr") < "1.1.0.9002") stop("Install the updated package (>= 1.1.0.9002) first.")
+if (packageVersion("fedstatAPIr") < "1.1.0.9003") stop("Install the updated package (>= 1.1.0.9003) first.")
 dir.create(path, recursive = TRUE, showWarnings = FALSE)
 path <- normalizePath(path, mustWork = TRUE)
 # No tokens, cookies or HTTP headers are included in the diagnostic files.
@@ -26,7 +26,7 @@ filters <- list(
 )
 cat("CPI 31074:", year, month, "- all territories, goods and indicator types.\n")
 cat("Diagnostic log:", file.path(path, "download.log"), "\n")
-job <- fedstat_download(
+job <- tryCatch(fedstat_download(
   "31074",
   filters = filters, path = path,
   max_cells = 100000, token_policy = "reuse",
@@ -34,6 +34,6 @@ job <- fedstat_download(
   request_pause = c(30, 60), timeout_seconds = 300,
   httr::user_agent("fedstatAPIr-price-check/1.0"),
   httr::config(connecttimeout = 20, low_speed_limit = 1, low_speed_time = 90)
-)
+), interrupt = function(e) quit(save = "no", status = 130, runLast = FALSE))
 print(job)
 cat("The same command resumes this job. Send download.log and session-info.txt for diagnosis.\n")

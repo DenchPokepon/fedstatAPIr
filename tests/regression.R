@@ -601,3 +601,95 @@ with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
 stopifnot(!any(vapply(events, function(e) e$event == "RECOVER", logical(1L))))
 unlink(path, recursive = TRUE)
+
+# A 64 KiB sniff can end halfway through a valid UTF-8 character. It only scans
+# ASCII markers and must not warn or alter the complete response bytes.
+local({
+  old <- options(warn = 2)
+  on.exit(options(old))
+  prefix <- function(start) {
+    c(
+      charToRaw(start), charToRaw(strrep("a", 65535L - nchar(start))),
+      as.raw(c(0xd0, 0xb0)), charToRaw("</root>")
+    )
+  }
+  document <- prefix("<GenericData>")
+  stopifnot(identical(internal("fedstat_export_content")(
+    response(document, type = "text/xml"), "sdmx"), document))
+  expect_error(internal("fedstat_export_content")(
+    response(prefix("<html>captcha")), "sdmx"), "fedstat_blocked")
+  expect_error(internal("fedstat_export_content")(
+    response(prefix("<html>invalid token")), "sdmx"), "fedstat_token")
+})
+
+# Old curl callback-abort errors must escape ordinary error/retry handlers as
+# interrupts, restore options, release the checkpoint lock, and never restart.
+for (typed in c(FALSE, TRUE)) {
+  local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    old <- options(curl_interrupt = FALSE)
+    on.exit(options(old), add = TRUE)
+    calls <- 0L
+    verb <- function(...) {
+      calls <<- calls + 1L
+      stopifnot(isTRUE(getOption("curl_interrupt")))
+      e <- simpleError(
+        "Operation was aborted by an application callback",
+        quote(curl_fetch_memory(url, handle))
+      )
+      if (typed) class(e) <- c("curl_error_aborted_by_callback", "curl_error", class(e))
+      stop(e)
+    }
+    mock("VERB",
+      verb,
+      {
+        stopifnot(tryCatch(
+          {
+            fedstat_download("31074", filters = "*", path = path, verbose = FALSE)
+            FALSE
+          },
+          interrupt = function(e) TRUE,
+          error = function(e) stop("Cancellation became an error")
+        ))
+      },
+      where = asNamespace("httr")
+    )
+    events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+    types <- vapply(events, `[[`, "", "event")
+    stopifnot(
+      calls == 1L, identical(getOption("curl_interrupt"), FALSE),
+      !dir.exists(file.path(path, ".lock")), tail(types, 1L) == "INTERRUPTED",
+      !any(types %in% c("REQUEST_ERROR", "PART_ERROR", "RETRY", "RECOVER", "STOP"))
+    )
+  })
+}
+
+# Request budget and partition size are independent; console output names both.
+local({
+  output <- character()
+  for (cells in c(1L, 4L)) {
+    path <- tempfile()
+    with_batch(withCallingHandlers(
+      {
+        job <- fedstat_download("31074",
+          filters = "*", path = path, max_cells = cells,
+          max_requests = 40L, request_pause = 0
+        )
+        stopifnot(nrow(job$parts) == if (cells == 1L) 4L else 1L)
+      },
+      message = function(m) {
+        output <<- c(output, conditionMessage(m))
+        invokeRestart("muffleMessage")
+      }
+    ))
+    events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+    stopifnot(events[[1L]]$max_cells == cells, events[[1L]]$max_requests == 40L)
+    unlink(path, recursive = TRUE)
+  }
+  stopifnot(
+    any(grepl("HTTP 1; limit 40", output, fixed = TRUE)),
+    any(grepl("max_cells=4; max_requests=40", output, fixed = TRUE))
+  )
+})
+cat("Cancellation, byte-sniffing and progress regression tests passed.\n")

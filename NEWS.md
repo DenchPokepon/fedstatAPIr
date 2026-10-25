@@ -1,5 +1,12 @@
 # fedstatAPIr (development)
 
+* Older curl callback-abort errors now propagate as interrupts, with no retry or
+  network-error report. The price-check script exits cleanly on cancellation.
+* Response sniffing handles UTF-8 characters cut by the inspection window without
+  spurious warnings or changes to the downloaded data.
+* Console progress labels the HTTP request ceiling explicitly and shows the
+  active partition-size setting at startup.
+
 * Batch downloads recover automatically after bounded cooldowns, separately retry
   transient token GETs, and subdivide ambiguous export rejections after session
   repair. Every request still counts toward the original invocation budget.

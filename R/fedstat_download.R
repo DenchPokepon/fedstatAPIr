@@ -124,7 +124,16 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   stopped <- function(e, event) {
     checkpoint <- if (file.exists(manifest_path)) tryCatch(readRDS(manifest_path), error = function(e) NULL) else NULL
     progress <- fedstat_progress(checkpoint)
-    retry <- event == "INTERRUPTED" || fedstat_retryable(e) ||
+    if (event == "INTERRUPTED") {
+      report(event, paste0(
+        "Cancelled; ", progress$saved_parts,
+        " saved part(s). Repeat the same call to continue."
+      ),
+      stage = if (is.null(e$stage)) phase else e$stage
+      )
+      return(invisible(NULL))
+    }
+    retry <- fedstat_retryable(e) ||
       any(vapply(
         c("fedstat_budget", "fedstat_unavailable", "fedstat_token", "fedstat_redirect"),
         function(cl) inherits(e, cl), logical(1L)
@@ -151,13 +160,16 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   }
   withCallingHandlers(
     {
-      report("START", paste0("Indicator ", indicator_id, "; directory: ", path),
-        package_version = as.character(utils::packageVersion("fedstatAPIr")),
-        r_version = as.character(getRversion()), platform = R.version$platform,
-        max_cells = max_cells, token_policy = token_policy, timeout_seconds = timeout_seconds,
-        request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
-        max_failures = max_failures, log_file = log_file,
-        recovery_max_times = recovery_max_times, recovery_pause = recovery_pause
+      report("START", paste0(
+        "Indicator ", indicator_id, "; max_cells=", format(max_cells, scientific = FALSE, trim = TRUE),
+        "; max_requests=", max_requests, " (HTTP limit, not planned parts); directory: ", path
+      ),
+      package_version = as.character(utils::packageVersion("fedstatAPIr")),
+      r_version = as.character(getRversion()), platform = R.version$platform,
+      max_cells = max_cells, token_policy = token_policy, timeout_seconds = timeout_seconds,
+      request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
+      max_failures = max_failures, log_file = log_file,
+      recovery_max_times = recovery_max_times, recovery_pause = recovery_pause
       )
       manifest <- if (file.exists(manifest_path)) readRDS(manifest_path) else NULL
       if (is.null(manifest) && length(list.files(c(path, file.path(path, "parts")), pattern = "^part-[0-9.]+[.]rds$"))) {
@@ -268,7 +280,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         fedstat_check_selection(manifest$selection, metadata)
         report("RESUME", paste0(
           "Resuming: ", fedstat_progress(manifest)$saved_parts,
-          " saved parts will be skipped; continuing unfinished work in ", path
+          " saved parts will be skipped; existing partitions are retained. Continuing in ", path
         ))
       }
       parts_dir <- if (is.null(manifest$parts_dir)) "" else manifest$parts_dir

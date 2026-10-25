@@ -5,7 +5,7 @@ small fixtures, without a test framework or live Fedstat traffic.
 
 ```sh
 R CMD build .
-R CMD check --as-cran fedstatAPIr_1.1.0.9002.tar.gz
+R CMD check --as-cran fedstatAPIr_1.1.0.9003.tar.gz
 ```
 
 For a quicker iteration after installing the source:
@@ -20,6 +20,35 @@ SDMX parsing, duplicate keys, bounded retries, token GET recovery, post-refresh
 redirect subdivision, cooldown recovery, Retry-After, request budgets,
 interruptions, log contents, checkpoint integrity and old flat-folder resume.
 Warnings are logged but retain normal R warning semantics.
+
+## Formatting
+
+Use [styler](https://styler.r-lib.org/) with its default tidyverse style:
+
+```r
+# Development tool only; not a package dependency.
+install.packages("styler")
+styler::style_pkg()
+styler::style_dir("tools")
+```
+
+## Cancellation on Windows
+
+Ctrl+C cancels the current run and retains saved parts. Callback-abort errors
+from older curl versions are treated as interrupts, without retries.
+`tools/prices.R` exits with status 130 after releasing the checkpoint lock.
+
+R 4.3's Windows `bin/Rscript.exe` launcher can return to Command Prompt before
+its child R process has stopped. Use the executable under `bin/x64` directly
+(adjust the installation path):
+
+```bat
+"C:\Program Files\R\R-4.3.2\bin\x64\Rscript.exe" tools/prices.R ../fedstat-price-check
+```
+
+This avoids the extra launcher process. How quickly the current network call
+returns still depends on curl and the operating system; this is not a promise
+of immediate cancellation during every connection phase.
 
 ## Tiny live check
 
@@ -48,7 +77,12 @@ Rscript tools/prices.R ../fedstat-price-check
 Defaults: indicator 31074, January 2024, all territories, goods and indicator
 types. Optional positional arguments are output directory, year and period label.
 This is one month, not the entire historical dataset. The script requires version
-1.1.0.9002 or later, prints warnings immediately and saves session information.
+1.1.0.9003 or later, prints warnings immediately and saves session information.
+
+The console labels `HTTP 1; limit 40` as a request count and ceiling, not a
+planned number of parts. `max_cells` controls partition size independently;
+raising it does not merge partitions already saved in a checkpoint. Startup
+output shows both settings.
 
 The limit is 40 HTTP requests per invocation, including metadata, token GETs,
 retries and recovery. Requests have 30–60 second pauses, a 300-second total timeout,

@@ -47,6 +47,20 @@ All these inherit from `fedstat_error` and `error`. `stage` distinguishes
 rate-limited/unavailable responses may include a parsed `retry_after` in seconds.
 Normal R programming, argument and storage errors remain normal errors.
 
+## Cancellation and console output
+
+Cancellation is an R `interrupt`, including the callback-abort errors emitted by
+older curl versions. It bypasses `error` handlers and never triggers retries.
+The downloader logs `INTERRUPTED` and releases its lock while retaining saved
+parts. Scripts can use `tryCatch(..., interrupt = function(e)
+quit(save = "no", status = 130, runLast = FALSE))` to exit without an error report.
+The `curl_interrupt` option is enabled during requests and restored on exit.
+
+Console output now uses `[HTTP 1; limit 40]`: 40 is the invocation's request
+ceiling, not a planned part count. JSON log field names remain unchanged.
+Changing `max_cells` does not change that ceiling or merge existing partitions.
+For the Windows R 4.3 launcher caveat, see [tools/README.md](tools/README.md).
+
 ## Network settings
 
 Per-call configuration applies to every request, including token refreshes:

@@ -87,6 +87,9 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
                             attempts = 1L, stage, before = function() NULL) {
   fedstat_positive(timeout_seconds, "timeout_seconds")
   fedstat_positive(attempts, "retry_max_times", integer = TRUE)
+  # Keep curl interruptible in Rscript too, restoring the caller's option on exit.
+  previous <- options(curl_interrupt = TRUE)
+  on.exit(options(previous), add = TRUE)
   defaults <- fedstat_default_config()
   agent <- fedstat_user_agent(c(list(defaults), list(...)))
   for (attempt in seq_len(attempts)) {
@@ -109,6 +112,13 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
         # Configuration and parser errors must never become network retries.
         curl_call <- paste(deparse(conditionCall(e)), collapse = " ")
         if (inherits(e, "curl_error") || grepl("curl_fetch_(memory|disk|stream)", curl_call)) {
+          # curl < 6.1 reports cancellation as an ordinary transport error (code 42).
+          if (inherits(e, "curl_error_aborted_by_callback") ||
+            grepl("aborted by (an application )?callback", conditionMessage(e), ignore.case = TRUE)) {
+            stop(structure(list(message = "Download cancelled.", call = NULL, stage = stage),
+              class = c("fedstat_interrupt", "interrupt", "condition")
+            ))
+          }
           temporary <- grepl("timed? ?out|timeout|resolve|connect|receiv|recv|send|partial|empty|reset|slow",
             conditionMessage(e),
             ignore.case = TRUE

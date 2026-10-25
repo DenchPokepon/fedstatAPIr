@@ -114,16 +114,17 @@ fedstat_form <- function(data_ids, session, format) {
 fedstat_export_content <- function(response, format) {
   content <- response$content
   # Error text is classified, never echoed: it can contain session tokens.
+  # ASCII signatures only: the byte prefix may end inside a UTF-8 character.
   prefix <- tryCatch(rawToChar(head(content, 65536L)), error = function(e) "")
   type <- response$headers[["content-type"]]
   if (is.null(type)) type <- ""
   type <- tolower(trimws(strsplit(paste0(type, ";"), ";", fixed = TRUE)[[1L]][1L]))
-  html <- grepl("<!DOCTYPE\\s+html|<html", prefix, ignore.case = TRUE, perl = TRUE) || type == "text/html"
+  html <- grepl("<!DOCTYPE\\s+html|<html", prefix, ignore.case = TRUE, perl = TRUE, useBytes = TRUE) || type == "text/html"
   if (html) {
-    if (grepl("captcha|access denied|forbidden", prefix, ignore.case = TRUE)) {
+    if (grepl("captcha|access denied|forbidden", prefix, ignore.case = TRUE, useBytes = TRUE)) {
       fedstat_error("Fedstat returned an access challenge; no automatic retry.", "blocked", "export")
     }
-    if (grepl("CSRF|invalid[ ._-]*token|token.{0,30}(expired|invalid|used)", prefix, ignore.case = TRUE)) {
+    if (grepl("CSRF|invalid[ ._-]*token|token.{0,30}(expired|invalid|used)", prefix, ignore.case = TRUE, useBytes = TRUE)) {
       fedstat_error("Fedstat rejected the download token (CSRF); refresh the session and retry.", "token", "export")
     }
     fedstat_error(

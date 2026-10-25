@@ -27,7 +27,7 @@ fedstat_logger <- function(path, indicator_id, verbose, context) {
     }
     if (verbose) {
       message(paste0(
-        entry$time, " ", event, " [", entry$request, "/", entry$max_requests,
+        entry$time, " ", event, " [HTTP ", entry$request, "; limit ", entry$max_requests,
         if (!is.null(entry$part)) paste0(" part=", entry$part) else "", "] ", message
       ))
     }
