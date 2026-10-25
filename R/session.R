@@ -55,6 +55,7 @@ fedstat_session <- function(data_ids) {
 
 fedstat_refresh <- function(session, ..., timeout_seconds, attempts = 1L,
                             before = function() NULL) {
+  fedstat_event(before, "TOKEN_REFRESH", "Obtaining a fresh token; resolved filters are retained.", stage = "token")
   response <- fedstat_request("GET", paste0(session$base_url, "/indicator/", session$indicator_id),
     ..., handle = session$handle, timeout_seconds = timeout_seconds, attempts = attempts,
     stage = "token", before = before)

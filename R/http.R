@@ -57,6 +57,8 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
   agent <- fedstat_user_agent(c(list(defaults), list(...)))
   for (attempt in seq_len(attempts)) {
     before()
+    fedstat_event(before, "REQUEST", paste(method, stage), stage = stage, method = method, http_attempt = attempt)
+    started <- proc.time()[["elapsed"]]
     result <- tryCatch({
       response <- httr::VERB(method, url, defaults,
         httr::timeout(timeout_seconds), httr::config(followlocation = FALSE),
@@ -76,8 +78,25 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
       }
       e
     })
-    if (!inherits(result, "error")) return(result)
+    seconds <- round(proc.time()[["elapsed"]] - started, 3)
+    if (!inherits(result, "error")) {
+      fedstat_event(before, "RESPONSE", paste0("HTTP ", result$status_code, "; ", seconds,
+        " s; ", length(result$content), " bytes"), stage = stage,
+        status = result$status_code, seconds = seconds, bytes = length(result$content))
+      return(result)
+    }
+    fedstat_event(before, "REQUEST_ERROR", conditionMessage(result), stage = stage,
+                   error_class = class(result)[1L], status = result$status, seconds = seconds)
     if (attempt == attempts || !fedstat_retryable(result)) stop(result)
-    Sys.sleep(fedstat_backoff(attempt, result))
+    seconds <- fedstat_backoff(attempt, result)
+    fedstat_event(before, "RETRY", paste0("Retrying ", stage, "; attempt ", attempt + 1L, "/", attempts,
+      " after backoff."), stage = stage, seconds = seconds, reason = class(result)[1L])
+    schedule <- attr(before, "backoff")
+    if (is.function(schedule)) schedule(seconds) else Sys.sleep(seconds)
   }
+}
+
+fedstat_event <- function(before, event, message, ...) {
+  report <- attr(before, "report")
+  if (is.function(report)) report(event, message, ...)
 }

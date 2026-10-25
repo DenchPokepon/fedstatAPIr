@@ -1,6 +1,6 @@
 Package: fedstatAPIr
 Title: Unofficial API for Fedstat (Rosstat EMISS System) for Automatic and Efficient Data Queries
-Version: 1.1.0.9000
+Version: 1.1.0.9002
 Authors@R: c(
     person(given = "Denis",
            family = "Krylov",
@@ -26,7 +26,9 @@ Imports:
     magrittr,
     utils,
     stats,
+    tools,
     data.table
 Depends: 
     R (>= 3.5.0)
 Config/roxygen2/version: 8.1.0
+RoxygenNote: 7.2.3

@@ -1,3 +1,43 @@
+# fedstatAPIr (development)
+
+* Batch downloads recover automatically after bounded cooldowns, separately retry
+  transient token GETs, and subdivide ambiguous export rejections after session
+  repair. Every request still counts toward the original invocation budget.
+* Warnings are included in diagnostic logs; stop messages distinguish exhausted
+  budgets from persistent failures.
+* New downloads store data in `parts/`. Existing flat checkpoints resume unchanged.
+* The main README is fully Russian and leads with an explained batch example;
+  English documentation is provided separately.
+
+* Batch downloads now append timestamped JSON Lines to `download.log`, independent
+  of console verbosity. Events include request budgets/stages, waits, timings,
+  byte counts, token refreshes, split dimensions/reasons and saved progress.
+* All failures and interruptions after job setup receive a recovery summary.
+* Completion now includes disk-based validation of keys across parts; duplicate
+  observations cannot be deferred until collection. Older manifests are validated
+  once without downloading again. Equivalent filter orderings and label forms
+  are accepted on resume.
+* `tools/prices.R` provides a bounded real CPI workload with diagnostic files.
+
+* Existing exported function names, arguments, defaults and successful return
+  types are preserved. No call-site migration is required.
+* Added `fedstat_download()` for sequential, resumable downloads, with explicit
+  request-size, token-reuse, retry and request-budget controls. Verified RDS
+  parts require no additional packages; `fedstat_collect()` loads them.
+* HTTP configuration now reaches fallback token GETs. Global httr configuration
+  and per-call headers override package defaults. Existing timeouts still bound
+  the complete HTTP transfer; connection and low-speed limits can be set in `...`.
+* Retry ownership is explicit: the convenience wrapper no longer multiplies GET
+  retries or retries permanent errors. Resolved metadata survive session refresh.
+* Added typed errors with stage and HTTP status fields. Error text omits response
+  bodies, cookies and tokens. See `MIGRATION.md` for custom retry wrappers.
+* Metadata scripts are located by content rather than position. Numeric parsing
+  now detects invalid values even when the source contains no missing values.
+* SDMX parsing avoids a full text copy, cleans temporary files on failure,
+  accepts file input, skips observation parsing for dictionary-only requests,
+  and rejects truncated or structurally invalid exports.
+* Added dependency-free offline regression tests and opt-in live/benchmark scripts.
+
 # fedstatAPIr 1.1.0
 
 ## Breaking changes
