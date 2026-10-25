@@ -121,8 +121,13 @@ fedstat_export_content <- function(response, format) {
   type <- tolower(trimws(strsplit(paste0(type, ";"), ";", fixed = TRUE)[[1L]][1L]))
   html <- grepl("<!DOCTYPE\\s+html|<html", prefix, ignore.case = TRUE, perl = TRUE, useBytes = TRUE) || type == "text/html"
   if (html) {
-    if (grepl("captcha|access denied|forbidden", prefix, ignore.case = TRUE, useBytes = TRUE)) {
-      fedstat_error("Fedstat returned an access challenge; no automatic retry.", "blocked", "export")
+    evidence <- fedstat_access_marker(content)
+    if (!is.null(evidence)) {
+      fedstat_error(
+        "Fedstat returned a possible access check or refusal; this does not confirm a CAPTCHA.",
+        "blocked", "export", response$status_code,
+        evidence = evidence
+      )
     }
     if (grepl("CSRF|invalid[ ._-]*token|token.{0,30}(expired|invalid|used)", prefix, ignore.case = TRUE, useBytes = TRUE)) {
       fedstat_error("Fedstat rejected the download token (CSRF); refresh the session and retry.", "token", "export")

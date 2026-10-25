@@ -9,7 +9,7 @@ fedstat_download(
   ...,
   filters = list(),
   path,
-  max_cells = 1e+05,
+  max_nominal_cells_request = 1e+05,
   token_policy = c("reuse", "refresh"),
   timeout_seconds = 180,
   retry_max_times = 2L,
@@ -20,8 +20,8 @@ fedstat_download(
   log_file = file.path(path, "download.log"),
   recovery_max_times = 3L,
   recovery_pause = 60,
-  max_combinations = 1e+05,
-  time_limit_seconds = 3600
+  time_limit_seconds = 3600,
+  access_pause = 300
 )
 }
 \arguments{
@@ -37,7 +37,11 @@ string \code{"*"} to explicitly select every value of every dimension.}
 per selection. New jobs store data in a \verb{parts/} subdirectory; old flat jobs
 resume unchanged. Only one process may write to it at a time.}
 
-\item{max_cells}{Deprecated alias for \code{max_combinations}. Existing calls still work.}
+\item{max_nominal_cells_request}{Maximum product of selected dimension cardinalities per
+initial request. A conservative size proxy, not an expected row count or a
+server guarantee. Default: 100,000. Values above 250,000 warn because their
+reliability depends on the indicator and service load. Failed exports can
+be subdivided further.}
 
 \item{token_policy}{\code{"reuse"} reuses a token until rejection; \code{"refresh"} gets
 a fresh token before each subsequent export. Metadata is reused either way.}
@@ -56,7 +60,9 @@ two-number range for random pauses. Retry delays and Retry-After can extend it.}
 \item{max_failures}{Pause recovery after this many consecutive transient or
 ambiguous export failures; this limits subdivision during an outage.}
 
-\item{verbose}{Whether to report progress and recovery decisions to the console.}
+\item{verbose}{Console detail: \code{TRUE} or \code{"progress"} for short updates (default),
+\code{FALSE} or \code{"quiet"} to hide updates, \code{"detailed"} for diagnostic events.
+R warnings and errors remain visible in every mode.}
 
 \item{log_file}{Append-only UTF-8 JSON Lines diagnostic log. Defaults to
 \code{download.log} inside \code{path}; \code{NULL} disables file logging. File logging is
@@ -69,14 +75,14 @@ a successfully saved part. Use zero to stop after ordinary retries.}
 \item{recovery_pause}{Initial cooldown in seconds, doubled on each consecutive
 recovery (up to 64 times this value). Request pauses and Retry-After still apply.}
 
-\item{max_combinations}{Maximum product of selected dimension cardinalities per
-initial request. A conservative size proxy, not an expected row count or a
-server guarantee. Failed exports can be subdivided further.}
-
 \item{time_limit_seconds}{Time allowance for this invocation, in seconds;
 defaults to 3600 (one hour). Includes requests, pauses and local processing.
 Requests are capped by the remaining time. Local validation and saving finish
 safely before stopping, so these operations can extend the elapsed time.}
+
+\item{access_pause}{Seconds to wait after a suspected access check or refusal;
+defaults to 300 (five minutes). Repeated refusals double this pause and share
+\code{recovery_max_times} and the overall time allowance. No challenge is bypassed.}
 }
 \value{
 A \code{fedstat_download} result with directory, completion status and part

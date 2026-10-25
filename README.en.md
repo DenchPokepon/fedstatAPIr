@@ -22,7 +22,7 @@ remotes::install_github("DenchPokepon/fedstatAPIr")
 ```
 
 The examples below use `fedstat_download()` and require development version
-1.1.0.9005 or later.
+1.1.0.9006 or later.
 To install a downloaded source copy, run `R CMD INSTALL .` in its folder.
 
 ## Download data
@@ -106,15 +106,50 @@ Usually the indicator, filters and folder are enough. Optional arguments include
 
 | Argument | Meaning |
 | --- | --- |
-| `max_combinations = 500000` | Up to 500,000 filter combinations per initial part, not output rows. Default: 100,000. |
+| `max_nominal_cells_request = 100000` | Up to 100,000 nominal cells per request: the default for smaller, usually more reliable requests. |
 | `time_limit_seconds = 3600` | One hour per invocation, including pauses and retries. Default: 3,600 seconds. |
 | `timeout_seconds = 300` | Allow five minutes per request, including transfer. |
 | `request_pause = c(30, 60)` | Wait 30–60 seconds between requests. |
 
-Increasing `max_combinations` usually reduces the number of parts in a new job,
-but makes each request heavier for Fedstat. Existing partitions are not merged on resume. Applied
-settings are shown at startup. See `?fedstat_download` and [MIGRATION.md](MIGRATION.md)
-for retry, token, User-Agent and connection settings.
+The size is the **Cartesian product** of the selected filter values: years ×
+months × territories × products × other dimensions. For example, 2 × 12 × 10 ×
+100 = 24,000 nominal cells. Actual output can have fewer rows because some
+combinations have no observations.
+
+Start with **100,000** for reliability, accepting that it may take longer.
+The best value depends on the indicator and Fedstat's current health. **250,000**
+is not a guaranteed safe threshold; larger settings produce a warning.
+Existing partitions are not merged on resume.
+
+```r
+max_nominal_cells_request = 250000 # Up to 250,000 filter combinations, not output rows
+```
+
+By default, short console messages show progress and saved rows. `verbose = FALSE`
+hides updates; warnings and errors remain visible. Use `verbose = "detailed"`
+for technical events. The full `download.log` is written in every mode. Messages
+also work in the RStudio console; interrupting a call retains saved progress.
+
+A suspected access check or refusal produces a warning and a five-minute pause
+before refreshing the download session. Repeated refusals increase the pause;
+recovery remains bounded by the time allowance and retry settings. This does not
+solve CAPTCHAs, and the detection alone does not prove a CAPTCHA was presented.
+See `?fedstat_download` for `access_pause` and other network/retry settings.
+
+## Removing saved parts
+
+Save the collected table first, then remove the parts:
+
+```r
+data <- fedstat_collect(job)
+saveRDS(data, "cpi-2024.rds")
+fedstat_cleanup(job)
+```
+
+Alternatively, `data <- fedstat_collect(job, remove_parts = TRUE)` removes parts
+only after the entire table has been read and validated. The table then exists
+**only in R memory** until you save it. Logs, the manifest and unrelated files
+remain. A cleaned download cannot be resumed or collected again.
 
 ## Troubleshooting
 

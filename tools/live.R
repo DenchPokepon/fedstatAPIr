@@ -36,7 +36,7 @@ cat("Same-session token reuse:", reused, "\n")
 Sys.sleep(30)
 job <- fedstat_download("37089", config,
   filters = filters, path = file.path(out, "parts"),
-  max_combinations = 1, time_limit_seconds = 600, request_pause = 30,
+  max_nominal_cells_request = 1, time_limit_seconds = 600, request_pause = 30,
   timeout_seconds = 90, retry_max_times = 2
 )
 combined <- fedstat_collect(job)

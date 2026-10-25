@@ -5,7 +5,7 @@ small fixtures, without a test framework or live Fedstat traffic.
 
 ```sh
 R CMD build .
-R CMD check --as-cran fedstatAPIr_1.1.0.9005.tar.gz
+R CMD check --as-cran fedstatAPIr_1.1.0.9006.tar.gz
 ```
 
 For a quicker iteration after installing the source:
@@ -19,7 +19,14 @@ Coverage includes metadata/session separation, HTTP configuration, typed errors,
 SDMX parsing, duplicate keys, bounded retries, token GET recovery, post-refresh
 redirect subdivision, cooldown recovery, Retry-After, time allowances,
 interruptions, log contents, checkpoint integrity and old flat-folder resume.
-Warnings are logged but retain normal R warning semantics.
+Warnings are logged but retain normal R warning semantics. Default console output
+is short progress; `verbose = "detailed"` exposes technical events and `FALSE`
+hides updates. File logs remain detailed in every mode. Console output uses
+ordinary newline-delimited R messages without terminal control sequences.
+
+Offline coverage also includes bounded access cooldowns and refreshed tokens,
+false-positive HTML markers, immediate size warnings, repeated calls after
+interruptions and cleanup safety. Native RStudio/Windows UI checks remain manual.
 
 ## Formatting
 
@@ -37,6 +44,8 @@ styler::style_dir("tools")
 Ctrl+C cancels the current run and retains saved parts. Callback-abort errors
 from older curl versions are treated as interrupts, without retries.
 `tools/prices.R` exits with status 130 after releasing the checkpoint lock.
+When sourced in interactive R it returns to the prompt without closing R; its
+warning option is restored on exit.
 
 R 4.3's Windows `bin/Rscript.exe` launcher can return to Command Prompt before
 its child R process has stopped. Use the executable under `bin/x64` directly
@@ -77,10 +86,10 @@ Rscript tools/prices.R ../fedstat-price-check
 Defaults: indicator 31074, January 2024, all territories, goods and indicator
 types. Optional positional arguments are output directory, year and period label.
 This is one month, not the entire historical dataset. The script requires version
-1.1.0.9005 or later, prints warnings immediately and saves session information.
+1.1.0.9006 or later, prints warnings immediately and saves session information.
 
 The default allowance is one hour per invocation, including requests, pauses and
-retries. There is no HTTP-count ceiling. `max_combinations` controls partition
+retries. There is no HTTP-count ceiling. `max_nominal_cells_request` controls partition
 size; raising it does not merge existing checkpoint partitions. Startup output
 shows the active size and time allowance.
 

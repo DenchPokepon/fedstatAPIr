@@ -2,15 +2,19 @@
 
 * Batch downloads now default to a one-hour time allowance, without an HTTP-count
   ceiling. Requests and pauses share it; expiry preserves resumable progress.
-* `max_combinations` replaces `max_cells` with the same size default. Explicit
-  uses of `max_cells` remain supported with migration messages; see `MIGRATION.md`.
+* The batch size control is `max_nominal_cells_request` (default 100,000).
+  Values above 250,000 warn; the earlier unpublished size names are removed.
+* Console output defaults to short progress messages; `verbose = "detailed"`
+  exposes technical events while diagnostic file logs always retain full detail.
+* Suspected access checks exclude script/style/comment text. Batch jobs warn,
+  wait at least five minutes, and refresh the token within bounded recovery.
+* `fedstat_cleanup()` and `fedstat_collect(remove_parts = TRUE)` explicitly remove
+  verified parts while retaining logs and unrelated files.
 
 * Older curl callback-abort errors now propagate as interrupts, with no retry or
   network-error report. The price-check script exits cleanly on cancellation.
 * Response sniffing handles UTF-8 characters cut by the inspection window without
   spurious warnings or changes to the downloaded data.
-* Console progress shows request counts; startup reports the time allowance and
-  active partition-size setting.
 
 * Batch downloads recover automatically after bounded cooldowns, separately retry
   transient token GETs, and subdivide ambiguous export rejections after session

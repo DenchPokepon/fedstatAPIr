@@ -1,5 +1,6 @@
 # File logs are JSON Lines; console messages are a compact view of the same events.
 fedstat_logger <- function(path, indicator_id, verbose, context) {
+  verbose <- fedstat_verbosity(verbose)
   connection <- NULL
   if (!is.null(path)) {
     if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path) ||
@@ -25,11 +26,14 @@ fedstat_logger <- function(path, indicator_id, verbose, context) {
       writeLines(jsonlite::toJSON(entry, auto_unbox = TRUE, null = "null", digits = NA), connection)
       flush(connection)
     }
-    if (verbose) {
+    if (verbose == "detailed") {
       message(paste0(
-        entry$time, " ", event, " [HTTP ", entry$request,
-        if (!is.null(entry$part)) paste0(" part=", entry$part) else "", "] ", message
+        entry$time, " ", event,
+        if (!is.null(entry$part)) paste0(" [part ", entry$part, "]") else "", ": ", message
       ))
+    } else if (verbose == "progress") {
+      line <- fedstat_console(entry)
+      if (!is.null(line)) message(line)
     }
     invisible(NULL)
   }
@@ -66,4 +70,52 @@ fedstat_filters <- function(filters) {
   names <- sort(unique(fields), method = "radix")
   result <- lapply(names, function(name) sort(unique(normalize(unlist(filters[fields == name], use.names = FALSE))), method = "radix"))
   stats::setNames(result, names)
+}
+
+fedstat_verbosity <- function(verbose) {
+  if (identical(verbose, TRUE)) {
+    return("progress")
+  }
+  if (identical(verbose, FALSE)) {
+    return("quiet")
+  }
+  if (!is.character(verbose) || length(verbose) != 1L || is.na(verbose) ||
+    !verbose %in% c("quiet", "progress", "detailed")) {
+    stop('verbose must be TRUE, FALSE, "quiet", "progress" or "detailed".', call. = FALSE)
+  }
+  verbose
+}
+
+fedstat_console <- function(e) {
+  number <- function(n) format(n, big.mark = ",", scientific = FALSE, trim = TRUE)
+  switch(e$event,
+    START = paste0(
+      "==> Downloading indicator ", e$indicator_id, ". Up to ",
+      round(e$time_limit_seconds / 60, 1), " minutes this run."
+    ),
+    PREPARE = "==> Reading available filters...",
+    VERIFY = "==> Checking previously saved data...",
+    RESUME = paste0("==> Continuing with ", e$saved_parts, " parts already saved."),
+    DOWNLOAD = "==> Downloading the next part...",
+    SAVED = paste0("  Saved ", number(e$rows), " rows so far in ", e$saved_parts, " parts."),
+    RETRY = "  Fedstat did not return the data. Will try again after a pause.",
+    RECOVER = if (!identical(e$reason, "fedstat_blocked")) {
+      paste0(
+        "  Fedstat is still unavailable. Pausing for at least ", round(e$seconds / 60, 1), " minutes before trying again."
+      )
+    },
+    SPLIT = if (!identical(e$reason, "size_limit")) "  This request failed. Trying smaller parts.",
+    VALIDATE = "==> Download finished. Checking the saved data...",
+    COMPLETE = paste0("==> Ready: ", number(e$rows), " rows in ", e$saved_parts, " saved parts. Use fedstat_collect() to open the table."),
+    INTERRUPTED = paste0("  Stopped by you. ", e$saved_parts, " parts are saved; run the same call to continue."),
+    STOP = paste0(
+      "  Download stopped. ", e$saved_parts, " parts are saved. ",
+      if (identical(e$error_class, "fedstat_time_limit")) {
+        "Time is up; run the same call to continue."
+      } else {
+        "See the error below and download.log for details."
+      }
+    ),
+    NULL
+  )
 }

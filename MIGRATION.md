@@ -37,7 +37,7 @@ Ordinary `tryCatch(..., error = ...)` still works. Prefer condition classes and
 | `fedstat_token`, `fedstat_redirect` | Rejected token or ambiguous redirect | Refresh once; batch jobs may probe smaller parts after repeated ambiguous export rejection |
 | `fedstat_transient` | Temporary HTTP/transport failure | Back off; inspect `e$stage` |
 | `fedstat_rate_limit` | HTTP 429 | Honor `e$retry_after`; do not subdivide |
-| `fedstat_blocked` | HTTP 403 or access challenge | Stop |
+| `fedstat_blocked` | HTTP 403 or suspected HTML access check/refusal | Batch downloads warn, cool down and refresh; bounded by recovery count and time |
 | `fedstat_unexpected_response` | HTML or unexpected media | Batch jobs may probe smaller parts after one session repair; never assume empty data |
 | `fedstat_metadata`, `fedstat_parse` | Unexpected page/export structure | Inspect; do not subdivide |
 | `fedstat_truncated` | Source explicitly reports truncation | Subdivide within the time allowance |
@@ -66,14 +66,34 @@ fit. Local parsing, validation and saving finish safely and may extend elapsed
 time. Expiry raises `fedstat_time_limit`, retaining verified parts. Repeat the
 same call to resume with a fresh allowance; do not change the output folder.
 
-Rename `max_cells` to **`max_combinations`**: the value is a product of filter
-cardinalities, not a row count. Its default remains 100,000. Old explicit
-`max_cells` values still work and produce a `DEPRECATED` log event with the
-replacement name. Conflicting values supplied under both names raise an error.
+The request-size argument is **`max_nominal_cells_request`**, with a default of
+100,000 nominal Cartesian cells. The earlier unpublished names `max_cells` and
+`max_combinations` are removed; rename the argument when updating a development
+script. Values above 250,000 warn immediately, including in quiet mode. This is
+an advisory threshold, not a server capacity guarantee.
 
-`tools/prices.R` uses the same one-hour allowance. Console request counts are
-informational. Logs include `time_limit_seconds`, `remaining_seconds` and
-`max_combinations`; the earlier `max_cells` JSON field is retained.
+`tools/prices.R` uses the same one-hour allowance. Logs include
+`time_limit_seconds`, `remaining_seconds` and `max_nominal_cells_request`.
+Console output defaults to short progress updates. `verbose = FALSE`/`"quiet"`
+hides updates, while `verbose = "detailed"` prints diagnostic events. `TRUE`
+means `"progress"`. JSON logs retain full events independently. Warnings use
+ordinary R conditions and can be handled with `withCallingHandlers`; options,
+output sinks and console state are not changed by the package.
+
+Suspected HTML access checks now exclude script/style/comment text and explicitly
+hidden elements. Fixed evidence labels are logged, never HTML contents. This is
+still heuristic detection, not proof of a CAPTCHA. Batch jobs warn and wait
+`access_pause = 300` seconds before retrying with a refreshed token. Repeated
+refusals double the wait and share `recovery_max_times` and the time allowance.
+HTTP 403 uses the same cooldown path; Retry-After is respected. Access refusals
+never cause splitting. The lower-level functions still return typed errors.
+
+`fedstat_collect(x, remove_parts = TRUE)` removes only manifest-listed parts after
+successful collection and validation. For a durable result, save the table first
+and call `fedstat_cleanup(x)` separately. Both operations lock the job directory.
+Cleanup retains the log, a manifest marked `cleaned`, and unrelated files; a
+cleaned job cannot be resumed or recollected. Interrupted cleanup can be repeated.
+
 No saved-file migration or redownload is needed. For the Windows R 4.3 launcher
 caveat, see [tools/README.md](tools/README.md).
 
@@ -154,7 +174,7 @@ and `recovery_pause = 60`. After ordinary attempts are exhausted, recoverable
 failures wait at least 60, 120, then 240 seconds before trying unfinished work
 again. A saved part resets this counter. Set `recovery_max_times = 0` for the
 previous stop-after-retries behavior. No recovery is performed on cancellation,
-time/subdivision budget exhaustion, access refusal, invalid filters, parse
+time/subdivision budget exhaustion, invalid filters, parse
 errors or storage errors. HTTP 429 respects Retry-After and never causes splitting.
 
 An ambiguous export redirect/HTML response rejected again after a token repair

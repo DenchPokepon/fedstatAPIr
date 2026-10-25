@@ -4,10 +4,15 @@
 \alias{fedstat_collect}
 \title{Collect a completed download into memory}
 \usage{
-fedstat_collect(x)
+fedstat_collect(x, remove_parts = FALSE)
 }
 \arguments{
 \item{x}{A \code{\link[=fedstat_download]{fedstat_download()}} result or its directory path.}
+
+\item{remove_parts}{Remove the saved parts only after successfully collecting
+and validating the full table. Default \code{FALSE}. The log and manifest remain.
+The returned table then exists only in memory until you save it. To save first
+and remove parts later, use \code{\link[=fedstat_cleanup]{fedstat_cleanup()}}.}
 }
 \value{
 A data.frame with the existing parser's columns and raw character

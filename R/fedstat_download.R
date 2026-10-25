@@ -11,10 +11,11 @@
 #' @param path Directory for the manifest and verified parts. Use one directory
 #'   per selection. New jobs store data in a `parts/` subdirectory; old flat jobs
 #'   resume unchanged. Only one process may write to it at a time.
-#' @param max_combinations Maximum product of selected dimension cardinalities per
+#' @param max_nominal_cells_request Maximum product of selected dimension cardinalities per
 #'   initial request. A conservative size proxy, not an expected row count or a
-#'   server guarantee. Failed exports can be subdivided further.
-#' @param max_cells Deprecated alias for `max_combinations`. Existing calls still work.
+#'   server guarantee. Default: 100,000. Values above 250,000 warn because their
+#'   reliability depends on the indicator and service load. Failed exports can
+#'   be subdivided further.
 #' @param time_limit_seconds Time allowance for this invocation, in seconds;
 #'   defaults to 3600 (one hour). Includes requests, pauses and local processing.
 #'   Requests are capped by the remaining time. Local validation and saving finish
@@ -30,13 +31,18 @@
 #' @param max_depth Maximum binary subdivisions from the original selection.
 #' @param max_failures Pause recovery after this many consecutive transient or
 #'   ambiguous export failures; this limits subdivision during an outage.
-#' @param verbose Whether to report progress and recovery decisions to the console.
+#' @param verbose Console detail: `TRUE` or `"progress"` for short updates (default),
+#'   `FALSE` or `"quiet"` to hide updates, `"detailed"` for diagnostic events.
+#'   R warnings and errors remain visible in every mode.
 #' @param log_file Append-only UTF-8 JSON Lines diagnostic log. Defaults to
 #'   `download.log` inside `path`; `NULL` disables file logging. File logging is
 #'   independent of `verbose`. Logs contain request stages, timings, counts and
 #'   recovery decisions, never HTTP headers, cookies, tokens or response bodies.
 #' @param recovery_max_times Maximum automatic cooldown/recovery cycles without
 #'   a successfully saved part. Use zero to stop after ordinary retries.
+#' @param access_pause Seconds to wait after a suspected access check or refusal;
+#'   defaults to 300 (five minutes). Repeated refusals double this pause and share
+#'   `recovery_max_times` and the overall time allowance. No challenge is bypassed.
 #' @param recovery_pause Initial cooldown in seconds, doubled on each consecutive
 #'   recovery (up to 64 times this value). Request pauses and Retry-After still apply.
 #' @return A `fedstat_download` result with directory, completion status and part
@@ -72,24 +78,21 @@
 #' data <- fedstat_collect(job)
 #' }
 fedstat_download <- function(indicator_id, ..., filters = list(), path,
-                             max_cells = 100000, token_policy = c("reuse", "refresh"),
+                             max_nominal_cells_request = 100000, token_policy = c("reuse", "refresh"),
                              timeout_seconds = 180, retry_max_times = 2L,
                              request_pause = c(30, 60),
                              max_depth = 20L, max_failures = 6L, verbose = TRUE,
                              log_file = file.path(path, "download.log"),
                              recovery_max_times = 3L, recovery_pause = 60,
-                             max_combinations = 100000, time_limit_seconds = 3600) {
+                             time_limit_seconds = 3600, access_pause = 300) {
+  obsolete <- intersect(names(match.call(expand.dots = FALSE)$...), c("max_cells", "max_combinations"))
+  if (length(obsolete)) stop("Use max_nominal_cells_request instead of ", paste(obsolete, collapse = ", "), ".", call. = FALSE)
   started <- fedstat_elapsed()
-  legacy_cells <- !missing(max_cells)
-  if (legacy_cells) {
-    if (!missing(max_combinations) && !isTRUE(max_cells == max_combinations)) {
-      stop("Use max_combinations only; it conflicts with max_cells.", call. = FALSE)
-    }
-    max_combinations <- max_cells
-  }
   token_policy <- match.arg(token_policy)
-  for (name in c("max_combinations", "time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
-    fedstat_positive(get(name), name, integer = name %in% c("max_combinations", "retry_max_times", "max_depth", "max_failures"))
+  verbose <- fedstat_verbosity(verbose)
+  fedstat_positive(access_pause, "access_pause")
+  for (name in c("max_nominal_cells_request", "time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
+    fedstat_positive(get(name), name, integer = name %in% c("max_nominal_cells_request", "retry_max_times", "max_depth", "max_failures"))
   }
   time_left <- function() {
     seconds <- time_limit_seconds - (fedstat_elapsed() - started)
@@ -173,7 +176,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
     )
     tryCatch(report(event, text,
       error_class = class(e)[1L],
-      stage = if (is.null(e$stage)) phase else e$stage, status = e$status,
+      stage = if (is.null(e$stage)) phase else e$stage, status = e$status, evidence = e$evidence,
       saved_parts = progress$saved_parts, pending_parts = progress$pending_parts,
       rows = progress$rows, action = action
     ), error = function(log_error) {
@@ -183,17 +186,22 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   withCallingHandlers(
     {
       report("START", paste0(
-        "Indicator ", indicator_id, "; max_combinations=", format(max_combinations, scientific = FALSE, trim = TRUE),
+        "Indicator ", indicator_id, "; max_nominal_cells_request=", format(max_nominal_cells_request, scientific = FALSE, trim = TRUE),
         "; time limit: ", time_limit_seconds, " s (", round(time_limit_seconds / 60, 1), " min); directory: ", path
       ),
       package_version = as.character(utils::packageVersion("fedstatAPIr")),
       r_version = as.character(getRversion()), platform = R.version$platform,
-      max_cells = max_combinations, max_combinations = max_combinations, token_policy = token_policy, timeout_seconds = timeout_seconds,
+      max_nominal_cells_request = max_nominal_cells_request, token_policy = token_policy, timeout_seconds = timeout_seconds,
       request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
       max_failures = max_failures, log_file = log_file,
-      recovery_max_times = recovery_max_times, recovery_pause = recovery_pause
+      recovery_max_times = recovery_max_times, recovery_pause = recovery_pause, access_pause = access_pause
       )
-      if (legacy_cells) report("DEPRECATED", "max_cells is now max_combinations; the supplied value is retained. Rename this argument in your call.")
+      if (max_nominal_cells_request > 250000) {
+        warning(
+          "Large requests may fail more often: max_nominal_cells_request exceeds 250,000. Try 100,000 for smaller, usually more reliable downloads; the best size depends on the indicator and how busy Fedstat is.",
+          call. = FALSE, immediate. = TRUE
+        )
+      }
       manifest <- if (file.exists(manifest_path)) readRDS(manifest_path) else NULL
       if (is.null(manifest) && length(list.files(c(path, file.path(path, "parts")), pattern = "^part-[0-9.]+[.]rds$"))) {
         stop("Saved parts exist without a manifest; restore manifest.rds or use a new path.", call. = FALSE)
@@ -205,6 +213,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         fedstat_save(manifest, manifest_path)
       }
       if (!is.null(manifest)) {
+        if (isTRUE(manifest$cleaned)) stop("Saved parts were removed after collection. Use your collected data or choose a new download folder.", call. = FALSE)
         if (!identical(manifest$version, 1L) || !identical(manifest$indicator_id, indicator_id) ||
           !identical(fedstat_filters(manifest$filters), filters)) {
           stop("This directory belongs to a different selection or manifest version; use a new path.", call. = FALSE)
@@ -227,7 +236,8 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
       session <- NULL
       recover <- function(error) {
         time_left()
-        possible <- fedstat_retryable(error) || inherits(error, "fedstat_unavailable") ||
+        access <- inherits(error, "fedstat_blocked")
+        possible <- access || fedstat_retryable(error) || inherits(error, "fedstat_unavailable") ||
           (identical(error$stage, "export") && any(vapply(
             c("fedstat_redirect", "fedstat_token", "fedstat_unexpected_response"),
             function(cl) inherits(error, cl), logical(1L)
@@ -236,9 +246,22 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
           return(FALSE)
         }
         recoveries <<- recoveries + 1L
-        delay <<- max(delay, recovery_pause * 2^min(recoveries - 1L, 6L), fedstat_backoff(recoveries, error))
+        delay <<- max(delay, (if (access) access_pause else recovery_pause) * 2^min(recoveries - 1L, 6L), fedstat_backoff(recoveries, error))
         failures <<- 0L
         if (!is.null(session)) session$token <- NULL
+        if (access) {
+          warning(
+            paste0(
+              "Fedstat may be checking or restricting access. Waiting at least ",
+              round(delay / 60, 1), " minutes before refreshing the download session and trying again. Saved data are safe."
+            ),
+            call. = FALSE, immediate. = TRUE
+          )
+          report("ACCESS_WAIT", "Pausing after an access check or refusal.",
+            seconds = delay,
+            recovery = recoveries, evidence = error$evidence, status = error$status
+          )
+        }
         report("RECOVER", paste0(
           "Automatic recovery ", recoveries, "/", recovery_max_times,
           "; waiting at least ", round(delay, 1), " s before retrying unfinished work. Saved parts are retained."
@@ -266,6 +289,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
       attr(gate, "time_left") <- time_left
       attr(gate, "time_limit_seconds") <- time_limit_seconds
       attr(gate, "backoff") <- function(seconds) delay <<- max(delay, seconds)
+      report("PREPARE", "Reading available filters.")
       phase <- "metadata"
       # Fetch once per invocation; subsequent token refreshes do not reparse metadata.
       metadata <- NULL
@@ -356,10 +380,11 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         phase <- "planning"
         selected <- selection[part$rows, , drop = FALSE]
         log_cells <- sum(log(as.numeric(table(selected$filter_field_id))))
-        if (log_cells > log(max_combinations) + 1e-10) {
-          if (!split_part(index, "size_limit")) stop("Selection cannot be reduced below max_combinations.", call. = FALSE)
+        if (log_cells > log(max_nominal_cells_request) + 1e-10) {
+          if (!split_part(index, "size_limit")) stop("Selection cannot be reduced below max_nominal_cells_request.", call. = FALSE)
           next
         }
+        report("DOWNLOAD", "Downloading the next part.")
         selected <- fedstat_attach_session(selected, session)
         repaired <- FALSE
         for (attempt in seq_len(retry_max_times)) {
@@ -397,7 +422,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
           if (transfer || token) failures <- failures + 1L
           report("PART_ERROR", conditionMessage(result),
             error_class = class(result)[1L],
-            stage = if (is.null(result$stage)) phase else result$stage, status = result$status
+            stage = if (is.null(result$stage)) phase else result$stage, status = result$status, evidence = result$evidence
           )
           if (failures >= max_failures) {
             result <- tryCatch(fedstat_error(
@@ -552,13 +577,23 @@ print.fedstat_download <- function(x, ...) {
 
 #' Collect a completed download into memory
 #' @param x A [fedstat_download()] result or its directory path.
+#' @param remove_parts Remove the saved parts only after successfully collecting
+#'   and validating the full table. Default `FALSE`. The log and manifest remain.
+#'   The returned table then exists only in memory until you save it. To save first
+#'   and remove parts later, use [fedstat_cleanup()].
 #' @return A data.frame with the existing parser's columns and raw character
 #'   ObsValue values. All parts are loaded into memory; for large jobs read the
 #'   individual RDS files listed in `manifest.rds` instead.
 #' @export
-fedstat_collect <- function(x) {
-  path <- if (inherits(x, "fedstat_download")) x$path else x
+fedstat_collect <- function(x, remove_parts = FALSE) {
+  if (!is.logical(remove_parts) || length(remove_parts) != 1L || is.na(remove_parts)) {
+    stop("remove_parts must be TRUE or FALSE.", call. = FALSE)
+  }
+  path <- fedstat_job_path(x)
+  lock <- fedstat_collect_lock(path)
+  on.exit(unlink(lock, recursive = TRUE), add = TRUE)
   manifest <- readRDS(file.path(path, "manifest.rds"))
+  if (isTRUE(manifest$cleaned)) stop("Saved parts have already been removed. Use the table you collected and saved.", call. = FALSE)
   if (!identical(manifest$version, 1L)) stop("Unsupported download manifest version.", call. = FALSE)
   if (any(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))) {
     stop("Download is incomplete; resume fedstat_download() before collecting.", call. = FALSE)
@@ -569,5 +604,6 @@ fedstat_collect <- function(x) {
     use.names = TRUE, fill = TRUE
   ))
   fedstat_check_data(data)
+  if (remove_parts) fedstat_remove_parts(manifest, path)
   data
 }

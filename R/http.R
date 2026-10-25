@@ -1,8 +1,8 @@
-fedstat_error <- function(message, kind, stage, status = NULL, retry_after = NULL) {
+fedstat_error <- function(message, kind, stage, status = NULL, retry_after = NULL, evidence = NULL) {
   stop(structure(
     list(
       message = message, call = NULL, stage = stage,
-      status = status, retry_after = retry_after
+      status = status, retry_after = retry_after, evidence = evidence
     ),
     class = c(paste0("fedstat_", kind), "fedstat_error", "error", "condition")
   ))
@@ -55,8 +55,9 @@ fedstat_response <- function(response, stage) {
   }
   if (status == 403L) {
     fedstat_error(
-      "Fedstat refused access (HTTP 403). No automatic retry.",
-      "blocked", stage, status
+      "Fedstat refused access (HTTP 403).",
+      "blocked", stage, status, delay,
+      evidence = "http_403"
     )
   }
   if (status >= 500L) {
@@ -79,6 +80,17 @@ fedstat_response <- function(response, stage) {
       paste0("Fedstat returned HTTP ", status, "."),
       "http", stage, status
     )
+  }
+  type <- response$headers[["content-type"]]
+  if (!is.null(type) && grepl("text/html", type, fixed = TRUE)) {
+    evidence <- fedstat_access_marker(response$content)
+    if (!is.null(evidence)) {
+      fedstat_error(
+        "Fedstat returned a possible access check or refusal; this does not confirm a CAPTCHA.",
+        "blocked", stage, status, delay,
+        evidence = evidence
+      )
+    }
   }
   response
 }
@@ -130,9 +142,10 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
           # curl < 6.1 reports cancellation as an ordinary transport error (code 42).
           if (inherits(e, "curl_error_aborted_by_callback") ||
             grepl("aborted by (an application )?callback", conditionMessage(e), ignore.case = TRUE)) {
-            stop(structure(list(message = "Download cancelled.", call = NULL, stage = stage),
+            signalCondition(structure(list(message = "Download cancelled.", call = NULL, stage = stage),
               class = c("fedstat_interrupt", "interrupt", "condition")
             ))
+            invokeRestart("abort")
           }
           temporary <- grepl("timed? ?out|timeout|resolve|connect|receiv|recv|send|partial|empty|reset|slow",
             conditionMessage(e),
@@ -172,7 +185,7 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
     }
     fedstat_event(before, "REQUEST_ERROR", conditionMessage(result),
       stage = stage,
-      error_class = class(result)[1L], status = result$status, seconds = seconds
+      error_class = class(result)[1L], status = result$status, seconds = seconds, evidence = result$evidence
     )
     if (attempt == attempts || !fedstat_retryable(result)) stop(result)
     seconds <- fedstat_backoff(attempt, result)

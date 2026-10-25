@@ -2,6 +2,7 @@
 
 S3method(print,fedstat_download)
 export("%>%")
+export(fedstat_cleanup)
 export(fedstat_collect)
 export(fedstat_data_ids_filter)
 export(fedstat_data_load_with_filters)
