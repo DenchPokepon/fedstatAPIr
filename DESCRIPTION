@@ -25,7 +25,6 @@ Imports:
     readsdmx,
     magrittr,
     utils,
-    methods,
     stats,
     data.table
 Depends: 

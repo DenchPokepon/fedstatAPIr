@@ -35,6 +35,27 @@ stopifnot(identical(attr(selected, "fedstat_session"), attr(ids, "fedstat_sessio
 expect_error(internal("fedstat_metadata")(xml2::read_html("<html>Unavailable</html>")), pattern = "Expected one script")
 expect_error(fedstat_data_ids_filter(ids, list(Year = "2024")), pattern = "explicitly specified")
 
+# Same public parser output, preserved codes, correct numeric failures, dictionary fast path.
+data <- fedstat_parse_sdmx_to_table(xml)
+stopifnot(nrow(data) == 2L, identical(data$AREA_code, c("001", "001")),
+          identical(data$ObsValue, c(123.4, 125)))
+stopifnot(identical(data, fedstat_parse_sdmx_to_table(fixture("generic.xml"))))
+marker <- charToRaw(sub('value="123,4"', 'value="..."', rawToChar(xml), fixed = TRUE))
+expect_error(fedstat_parse_sdmx_to_table(marker), pattern = "try_to_parse_ObsValue = FALSE")
+stopifnot(fedstat_parse_sdmx_to_table(marker, try_to_parse_ObsValue = FALSE)$ObsValue[1] == "...")
+stopifnot(nrow(fedstat_parse_sdmx_to_table(marker, return_type = "dictionary")) == 1L)
+expect_error(fedstat_parse_sdmx_to_table(charToRaw(sub("false", "true", rawToChar(xml)))), "fedstat_truncated")
+expect_error(fedstat_parse_sdmx_to_table(charToRaw("<html/>")), "fedstat_parse")
+empty <- charToRaw(sub("<generic:Series>.*</generic:Series>", "", rawToChar(xml)))
+stopifnot(nrow(fedstat_parse_sdmx_to_table(empty)) == 0L)
+
+# Trimmed real Fedstat SDMX 1.0: series attributes, raw values and leading zeroes.
+real <- fedstat_parse_sdmx_to_table(fixture("fedstat-37089.xml"), try_to_parse_ObsValue = FALSE)
+stopifnot(identical(real$s_OKATO_code, rep("05000000000", 2L)),
+          identical(real$ObsValue, c("211765", "312597,6")),
+          identical(real$Time, c("2010", "2011")))
+expect_error(internal("fedstat_parse_sdmx")(xml, indicator_id = "999"), "fedstat_parse")
+
 # MIME parameters, safe errors, encoded repeated fields and shared token state.
 stopifnot(identical(internal("fedstat_export_content")(response(xml, type = "text/xml; charset=UTF-8"), "sdmx"), xml))
 expect_error(internal("fedstat_export_content")(response("<html>CSRF secret-token</html>"), "sdmx"), "fedstat_token")
@@ -93,4 +114,4 @@ mock("fedstat_get_data_ids", function(...) { gets <<- gets + 1L; ids },
                                                  loading_steps_verbose = FALSE)) == 2L))))
 stopifnot(gets == 1L, exports == 2L)
 
-cat("HTTP and session regression tests passed.\n")
+cat("HTTP and parser regression tests passed.\n")
