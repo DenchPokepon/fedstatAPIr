@@ -18,9 +18,9 @@
 #' \code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}
 #' for all indicators and is often quite fast.
 #'
-#' Note: CSRF tokens are single-use. Each call to \code{fedstat_post_data_ids_filtered}
-#' consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
-#' The wrapper function \code{fedstat_data_load_with_filters} handles this automatically.
+#' Token lifetime is controlled by Fedstat. Reuse may succeed, but tokens can be
+#' rejected. The wrapper \code{fedstat_data_load_with_filters} refreshes refused
+#' tokens while retaining the resolved filters.
 #'
 #' Correct filter_field_object_ids are needed to get data.
 #' For the sdmx format, these ids do not change anything,
@@ -36,8 +36,8 @@
 #' The \code{fedstat_handle} attribute holds an \code{httr::handle} object that preserves
 #' session cookies for the downstream POST request.
 #' These are used internally by \code{fedstat_post_data_ids_filtered} and must not be removed.
-#' Note: CSRF tokens are single-use -- each call to \code{fedstat_post_data_ids_filtered}
-#' consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
+#' A shared in-memory session attribute keeps refreshed tokens consistent across
+#' filtered copies. Metadata can be reused; session handles are not a disk cache.
 #'
 #' @param indicator_id character, indicator id/code from indicator URL.
 #'   For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426
@@ -71,101 +71,39 @@ fedstat_get_data_ids <- function(indicator_id,
                                  timeout_seconds = 180,
                                  retry_max_times = 3,
                                  httr_verbose = NULL) {
+  if (length(indicator_id) != 1L || is.na(indicator_id) ||
+      !grepl("^[0-9]+$", as.character(indicator_id))) {
+    stop("indicator_id must be a single numeric indicator code.", call. = FALSE)
+  }
+  base_url <- "https://www.fedstat.ru"
+  handle <- httr::handle(base_url)
+  response <- fedstat_request("GET", paste0(base_url, "/indicator/", indicator_id),
+    httr_verbose, ..., handle = handle, timeout_seconds = timeout_seconds,
+    attempts = retry_max_times, stage = "metadata")
+  html <- xml2::read_html(response$content, encoding = "UTF-8")
+  result <- tryCatch(fedstat_metadata(html), error = function(e) {
+    fedstat_error(paste0("Cannot read indicator filters: ", conditionMessage(e),
+                        " The page may be unavailable or have changed."), "metadata", "metadata")
+  })
+  session <- tryCatch(fedstat_token(html, indicator_id, handle, base_url),
+    fedstat_metadata = function(e) {
+      warning(conditionMessage(e), " A fresh token will be requested on download.", call. = FALSE)
+      state <- new.env(parent = emptyenv())
+      state$indicator_id <- as.character(indicator_id)
+      state$base_url <- base_url
+      state$handle <- handle
+      state$used <- FALSE
+      state
+    })
+  fedstat_attach_session(result, session)
+}
 
-  # workaround for `:=` and CMD check
+fedstat_metadata <- function(html) {
   filter_value_title <- filter_field_object_ids <- NULL
-
-  fedstat_base_url <- "https://www.fedstat.ru"
-  indicator_URL <- paste0(fedstat_base_url, "/indicator/", indicator_id)
-  fedstat_handle <- httr::handle(fedstat_base_url)
-
-  GET_res <- tryCatch(
-    expr = httr::RETRY(
-      "GET",
-      indicator_URL,
-      fedstat_default_config(),
-      httr_verbose,
-      httr::timeout(timeout_seconds),
-      handle = fedstat_handle,
-      times = retry_max_times,
-      ... = ...
-    ),
-    error = function(cond) {
-      if (cond[["call"]] == str2lang("f(init, x[[i]])") &&
-        cond[["message"]] == "is.request(y) is not TRUE") {
-        stop("Passed invalid arguments to ... argument, ",
-          "did you accidentally passed filters to ...? ",
-          "All arguments after ... must be explicitly named",
-          call. = FALSE
-        )
-      } else {
-        stop(cond)
-      }
-    }
-  )
-
-  if (httr::http_error(GET_res)) {
-    status <- httr::status_code(GET_res)
-    if (status == 403) {
-      stop("EMISS returned 403 (Forbidden) for indicator ", indicator_id, ". ",
-           "Your request was likely blocked by anti-bot protection. ",
-           "Try passing custom headers via httr::set_config(httr::add_headers(...)). ",
-           "See package README for details.",
-           call. = FALSE)
-    } else if (status == 503) {
-      stop("EMISS returned 503 (Service Unavailable) for indicator ", indicator_id, ". ",
-           "The server is overloaded. Try again later.",
-           call. = FALSE)
-    } else {
-      stop("EMISS returned HTTP ", status, " for indicator ", indicator_id, ".",
-           call. = FALSE)
-    }
-  }
-
-  GET_html <- xml2::read_html(GET_res, encoding = "UTF-8")
-
-  # --- Extract CSRF token from downloadTokenHolder div ---
-  csrf_token <- NULL
-  csrf_token_name <- NULL
-
-  token_holder <- xml2::xml_find_all(
-    GET_html, ".//div[@id='downloadTokenHolder']"
-  )
-
-  if (length(token_holder) > 0) {
-    holder_div <- token_holder[[1]]
-
-    token_name_input <- xml2::xml_find_first(
-      holder_div, ".//input[@name='struts.token.name']"
-    )
-    candidate_name <- xml2::xml_attr(token_name_input, "value")
-
-    if (!is.na(candidate_name)) {
-      csrf_token_name <- candidate_name
-      token_input <- xml2::xml_find_first(
-        holder_div,
-        paste0(".//input[@name='", csrf_token_name, "']")
-      )
-      candidate_token <- xml2::xml_attr(token_input, "value")
-
-      if (!is.na(candidate_token)) {
-        csrf_token <- candidate_token
-      }
-    }
-  }
-
-  if (is.null(csrf_token)) {
-    warning("Could not extract CSRF token from indicator page for ", indicator_id, ". ",
-            "fedstat_post_data_ids_filtered() will attempt to fetch one automatically.",
-            call. = FALSE)
-  }
-  # --- End CSRF extraction ---
-
-  js_script <- xml2::xml_find_all(GET_html, ".//script")[[12]] %>% # 12 - Empirically determined value
-    xml2::xml_text() %>%
-    strsplit("\n") %>%
-    unlist()
-
+  scripts <- xml2::xml_text(xml2::xml_find_all(html, ".//script"))
+  candidates <- scripts[grepl("filters\\s*:", scripts) & grepl("left_columns\\s*:", scripts)]
+  if (length(candidates) != 1L) stop("Expected one script containing filter definitions.")
+  js_script <- strsplit(candidates, "\n", fixed = TRUE)[[1L]]
   filter_list <- parse_js1(js_script)
   object_list <- parse_js2(js_script) %>% unlist()
 
@@ -204,7 +142,7 @@ fedstat_get_data_ids <- function(indicator_id,
     data.table::merge.data.table(object_df, by = "filter_field_id", all.x = TRUE)
 
 
-  if (data.table::uniqueN(filter_dt) != nrow(filter_dt)) {
+  if (anyDuplicated(filter_dt[, c("filter_field_id", "filter_value_id")])) {
     stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")
   }
 
@@ -215,12 +153,5 @@ fedstat_get_data_ids <- function(indicator_id,
   )][] %>%
     as.data.frame()
 
-  # Attach CSRF token and indicator_id as attributes for downstream use
-  attr(result, "fedstat_csrf_token") <- csrf_token
-  attr(result, "fedstat_csrf_token_name") <- csrf_token_name
-  attr(result, "fedstat_indicator_id") <- as.character(indicator_id)
-  attr(result, "fedstat_handle") <- fedstat_handle
-  attr(result, "fedstat_base_url") <- fedstat_base_url
-
-  return(result)
+  result
 }

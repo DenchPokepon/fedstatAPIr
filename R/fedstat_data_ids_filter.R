@@ -74,6 +74,7 @@ fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings
 
   # Preserve CSRF token and other fedstat attributes through data.table operations
   fedstat_attrs <- list(
+    fedstat_session = attr(data_ids, "fedstat_session"),
     fedstat_csrf_token = attr(data_ids, "fedstat_csrf_token"),
     fedstat_csrf_token_name = attr(data_ids, "fedstat_csrf_token_name"),
     fedstat_indicator_id = attr(data_ids, "fedstat_indicator_id"),

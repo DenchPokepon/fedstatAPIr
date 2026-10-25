@@ -3,7 +3,6 @@
 /*.Rcheck
 /*.xlsx
 filter_titles_aliases.R
-/*tests
 /*.txt
 dev/
 README.html

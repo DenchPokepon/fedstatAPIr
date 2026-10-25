@@ -38,7 +38,9 @@
 #' @param ... other arguments passed to httr::GET and httr::POST
 #' @inheritParams fedstat_data_ids_filter
 #' @param timeout_seconds numeric, maximum time before a new GET and POST request is tried
-#' @param retry_max_times numeric, maximum number of tries to GET and POST `data_ids`
+#' @param retry_max_times numeric, maximum pipeline attempts, including the first.
+#'   Only transient failures and one session repair are retried. Filter metadata
+#'   are retained after a successful GET; retries do not nest.
 #' @param loading_steps_verbose logical, print data loading steps to console
 #' @inheritParams fedstat_parse_sdmx_to_table
 #'
@@ -78,81 +80,37 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            return_type = c("data", "dictionary"),
                                            try_to_parse_ObsValue = TRUE) {
 
-  last_error <- NULL
-
+  fedstat_positive(retry_max_times, "retry_max_times", integer = TRUE)
+  data_ids <- NULL
+  refreshed <- FALSE
   for (attempt in seq_len(retry_max_times)) {
-    if (attempt > 1 && loading_steps_verbose) {
-      cat("Retry attempt ", attempt, " of ", retry_max_times, " ...\n", sep = "")
-    }
-
-    if (loading_steps_verbose) {
-      cat(
-        "Downloading EMISS internal identificators for the https://www.fedstat.ru/indicator/",
-        indicator_id, " ...\n",
-        sep = ""
-      )
-    }
-
-    data_ids <- tryCatch(
-      fedstat_get_data_ids(
-        indicator_id,
-        ... = ...,
-        timeout_seconds = timeout_seconds,
-        retry_max_times = retry_max_times,
-        httr_verbose = httr_verbose
-      ),
-      error = function(e) {
-        last_error <<- e
-        NULL
+    result <- tryCatch({
+      if (is.null(data_ids)) {
+        if (loading_steps_verbose) message("Loading indicator ", indicator_id, " filters ...")
+        ids <- fedstat_get_data_ids(indicator_id, ..., timeout_seconds = timeout_seconds,
+                                    retry_max_times = 1L, httr_verbose = httr_verbose)
+        data_ids <- fedstat_data_ids_filter(ids, filters, disable_warnings)
       }
-    )
-
-    if (is.null(data_ids)) {
-      if (attempt == retry_max_times) stop(last_error)
-      if (loading_steps_verbose) cat("GET failed, retrying ...\n")
-      next
+      if (loading_steps_verbose) message("Downloading indicator ", indicator_id, " ...")
+      bytes <- fedstat_post_data_ids_filtered(data_ids, ..., timeout_seconds = timeout_seconds,
+                                              retry_max_times = 1L, httr_verbose = httr_verbose)
+      fedstat_parse_sdmx_to_table(bytes, return_type, try_to_parse_ObsValue)
+    }, error = identity)
+    if (!inherits(result, "error")) {
+      if (loading_steps_verbose) message("Done")
+      return(result)
     }
-
-    data_ids_filtered <- fedstat_data_ids_filter(
-      data_ids = data_ids,
-      filters = filters,
-      disable_warnings = disable_warnings
-    )
-
-    if (loading_steps_verbose) cat("Downloading data from EMISS ...\n")
-    data_raw <- tryCatch(
-      fedstat_post_data_ids_filtered(
-        data_ids = data_ids_filtered,
-        ... = ...,
-        timeout_seconds = timeout_seconds,
-        retry_max_times = retry_max_times,
-        httr_verbose = httr_verbose
-      ),
-      error = function(e) {
-        last_error <<- e
-        NULL
-      }
-    )
-
-    if (!is.null(data_raw)) {
-      if (loading_steps_verbose) cat("Parsing data ...\n")
-      data_data_frame <- fedstat_parse_sdmx_to_table(
-        data_raw = data_raw,
-        return_type = return_type,
-        try_to_parse_ObsValue = try_to_parse_ObsValue
-      )
-
-      if (loading_steps_verbose) cat("Done\n")
-      return(data_data_frame)
+    token <- inherits(result, "fedstat_token") || inherits(result, "fedstat_redirect")
+    if (attempt == retry_max_times || (!fedstat_retryable(result) && !(token && !refreshed))) stop(result)
+    if (!is.null(data_ids)) {
+      # Invalidate session state, keep the already resolved filter selection.
+      session <- fedstat_session(data_ids)
+      session$token <- NULL
+      data_ids <- fedstat_attach_session(data_ids, session)
     }
-
-    # POST failed -- re-fetch token on next attempt (CSRF tokens are single-use)
-    if (attempt < retry_max_times && loading_steps_verbose) {
-      cat("POST failed: ", conditionMessage(last_error), "\n", sep = "")
-      cat("Re-fetching CSRF token ...\n")
-    }
+    if (token) refreshed <- TRUE
+    if (loading_steps_verbose) message(conditionMessage(result), " Retrying (", attempt + 1L,
+                                      "/", retry_max_times, ") ...")
+    Sys.sleep(fedstat_backoff(attempt, result))
   }
-
-  # All retries exhausted
-  stop(last_error)
 }

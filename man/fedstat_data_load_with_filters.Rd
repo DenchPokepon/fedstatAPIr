@@ -42,7 +42,9 @@ because of ASCII requirement for CRAN}
 
 \item{timeout_seconds}{numeric, maximum time before a new GET and POST request is tried}
 
-\item{retry_max_times}{numeric, maximum number of tries to GET and POST \code{data_ids}}
+\item{retry_max_times}{numeric, maximum pipeline attempts, including the first.
+Only transient failures and one session repair are retried. Filter metadata
+are retained after a successful GET; retries do not nest.}
 
 \item{disable_warnings}{bool, enables or disables warnings about
 non matched \code{filter_value_title} in \code{filters} and \code{filter_value_title} from \code{data_ids}.}

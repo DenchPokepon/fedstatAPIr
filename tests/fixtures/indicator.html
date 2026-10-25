@@ -1,0 +1,18 @@
+<html><body>
+<div id="downloadTokenHolder"><input name="struts.token.name" value="downloadToken"/>
+<input name="downloadToken" value="fixture-token"/></div>
+<script>/* unrelated script: position deliberately differs from production */</script>
+<script>
+var grid = new Grid({
+filters: {
+0: {title: 'Показатель', values: {31074: {title: 'Example indicator'}}},
+1: {title: 'Year', values: {2024: {title: '2024'}, 2025: {title: '2025'}}},
+2: {title: 'Area', values: {1: {title: 'First'}, 2: {title: 'Second'}}}
+},
+left_columns: [2],
+top_columns: [1],
+groups: [],
+filterObjectIds: [0]
+});
+grid.init();
+</script></body></html>

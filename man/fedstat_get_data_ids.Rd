@@ -55,9 +55,9 @@ to get the data itself. A POST request for data is sent to
 \code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}
 for all indicators and is often quite fast.
 
-Note: CSRF tokens are single-use. Each call to \code{fedstat_post_data_ids_filtered}
-consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
-The wrapper function \code{fedstat_data_load_with_filters} handles this automatically.
+Token lifetime is controlled by Fedstat. Reuse may succeed, but tokens can be
+rejected. The wrapper \code{fedstat_data_load_with_filters} refreshes refused
+tokens while retaining the resolved filters.
 
 Correct filter_field_object_ids are needed to get data.
 For the sdmx format, these ids do not change anything,
@@ -73,8 +73,8 @@ The returned data.frame also carries session and CSRF token metadata as attribut
 The \code{fedstat_handle} attribute holds an \code{httr::handle} object that preserves
 session cookies for the downstream POST request.
 These are used internally by \code{fedstat_post_data_ids_filtered} and must not be removed.
-Note: CSRF tokens are single-use -- each call to \code{fedstat_post_data_ids_filtered}
-consumes the token. For subsequent downloads, call \code{fedstat_get_data_ids} again.
+A shared in-memory session attribute keeps refreshed tokens consistent across
+filtered copies. Metadata can be reused; session handles are not a disk cache.
 }
 \examples{
 \dontrun{
