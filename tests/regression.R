@@ -688,8 +688,128 @@ local({
     unlink(path, recursive = TRUE)
   }
   stopifnot(
-    any(grepl("HTTP 1; limit 40", output, fixed = TRUE)),
-    any(grepl("max_cells=4; max_requests=40", output, fixed = TRUE))
+    any(grepl("HTTP 1; legacy limit 40", output, fixed = TRUE)),
+    any(grepl("max_combinations=4; time limit: 3600 s", output, fixed = TRUE))
   )
 })
 cat("Cancellation, byte-sniffing and progress regression tests passed.\n")
+
+# Time is the default allowance; legacy names retain their explicit meaning.
+stopifnot(
+  is.null(formals(fedstat_download)$max_requests),
+  formals(fedstat_download)$time_limit_seconds == 3600
+)
+expect_error(fedstat_download("31074",
+  path = tempfile(), max_cells = 2,
+  max_combinations = 3
+), pattern = "conflicts")
+for (value in list(0, NA, Inf, "one hour")) {
+  expect_error(fedstat_download("31074", path = tempfile(), time_limit_seconds = value))
+}
+local({
+  path <- tempfile()
+  on.exit(unlink(path, recursive = TRUE))
+  clock <- 0
+  posts <- 0L
+  with_batch(mock("fedstat_elapsed", function() clock, {
+    mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
+      attr(data_ids, "fedstat_session")$before()
+      posts <<- posts + 1L
+      clock <<- clock + 2
+      serialize(fake_data(data_ids), NULL)
+    }, expect_error(fedstat_download("31074",
+      filters = "*", path = path,
+      max_combinations = 1, time_limit_seconds = 1, request_pause = 0,
+      verbose = FALSE
+    ), "fedstat_time_limit"))
+    m <- readRDS(file.path(path, "manifest.rds"))
+    stopifnot(
+      posts == 1L, sum(vapply(m$parts, function(p) p$status == "complete", logical(1))) == 1L,
+      !dir.exists(file.path(path, ".lock"))
+    )
+    events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+    stopifnot(
+      tail(events, 1)[[1]]$error_class == "fedstat_time_limit",
+      !any(vapply(events, function(e) e$event %in% c("RETRY", "RECOVER"), logical(1)))
+    )
+    # A fresh invocation gets a fresh hour and skips the saved part.
+    stopifnot(
+      fedstat_download("31074",
+        filters = "*", path = path,
+        max_combinations = 1, request_pause = 0, verbose = FALSE
+      )$complete,
+      nrow(fedstat_collect(path)) == 4L
+    )
+  }))
+})
+
+# Do not shorten pacing/Retry-After to squeeze another request into the allowance.
+local({
+  path <- tempfile()
+  on.exit(unlink(path, recursive = TRUE))
+  with_batch(mock(
+    "fedstat_elapsed", function() 0,
+    mock("Sys.sleep", function(...) stop("Must not sleep"),
+      expect_error(
+        fedstat_download("31074",
+          filters = "*", path = path,
+          time_limit_seconds = 2, request_pause = 10, verbose = FALSE
+        ),
+        "fedstat_time_limit", "next required pause"
+      ),
+      where = baseenv()
+    )
+  ))
+  events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+  stopifnot(tail(events, 1)[[1]]$request == 1L)
+})
+
+# Remaining time caps every real HTTP request, including a user's larger timeout.
+local({
+  calls <- 0L
+  before <- function() NULL
+  attr(before, "time_left") <- function() 0.25
+  attr(before, "time_limit_seconds") <- 1
+  verb <- function(method, url, ..., handle) {
+    calls <<- calls + 1L
+    configs <- Filter(function(x) inherits(x, "request"), list(...))
+    config <- do.call(c, configs)
+    stopifnot(config$options$timeout_ms == 250)
+    stop(simpleError("Timeout was reached", quote(curl_fetch_memory(url, handle))))
+  }
+  mock("VERB", verb, expect_error(internal("fedstat_request")(
+    "GET", "http://example.invalid", httr::timeout(999),
+    handle = httr::handle("http://example.invalid"), timeout_seconds = 300,
+    attempts = 3, stage = "token", before = before), "fedstat_time_limit"),
+  where = asNamespace("httr")
+  )
+  stopifnot(calls == 1L)
+})
+cat("Time allowance and argument compatibility regression tests passed.\n")
+
+# A caller's shorter transfer timeout is preserved under the overall allowance.
+local({
+  before <- function() NULL
+  attr(before, "time_left") <- function() 10
+  mock("VERB", function(method, url, ..., handle) {
+    configs <- Filter(function(x) inherits(x, "request"), list(...))
+    stopifnot(do.call(c, configs)$options$timeout_ms == 500)
+    response(xml, type = "text/xml")
+  }, internal("fedstat_request")("GET", "http://example.invalid", httr::timeout(0.5),
+    handle = httr::handle("http://example.invalid"), timeout_seconds = 300,
+    stage = "metadata", before = before), where = asNamespace("httr"))
+  invisible(NULL)
+})
+
+# A sub-millisecond remainder expires cleanly instead of becoming an invalid timeout.
+local({
+  path <- tempfile()
+  on.exit(unlink(path, recursive = TRUE))
+  mock(
+    "fedstat_elapsed", function() 0,
+    expect_error(fedstat_download("31074",
+      path = path, time_limit_seconds = 0.0001,
+      verbose = FALSE
+    ), "fedstat_time_limit")
+  )
+})

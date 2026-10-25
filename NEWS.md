@@ -1,5 +1,10 @@
 # fedstatAPIr (development)
 
+* Batch downloads now default to a one-hour time allowance, without an HTTP-count
+  ceiling. Requests and pauses share it; expiry preserves resumable progress.
+* `max_combinations` replaces `max_cells` with the same size default. Explicit
+  old arguments remain supported with migration messages; see `MIGRATION.md`.
+
 * Older curl callback-abort errors now propagate as interrupts, with no retry or
   network-error report. The price-check script exits cleanly on cancellation.
 * Response sniffing handles UTF-8 characters cut by the inspection window without

@@ -22,7 +22,7 @@ remotes::install_github("DenchPokepon/fedstatAPIr")
 ```
 
 The examples below use `fedstat_download()` and require development version
-1.1.0.9003 or later.
+1.1.0.9004 or later.
 To install a downloaded source copy, run `R CMD INSTALL .` in its folder.
 
 ## Download data
@@ -95,19 +95,24 @@ Temporary failures are retried with pauses; persistent failures stop the downloa
 without discarding saved data. `filters = "*"` selects the indicator's entire
 history across all dimensions and can take a long time.
 
+Each invocation has a **one-hour time allowance by default**, including requests,
+pauses and retries. Saved progress is retained when time runs out. Local parsing,
+validation and saving finish safely and may extend the elapsed time. Set
+`time_limit_seconds = 7200` to allow two hours. Resuming starts a fresh allowance.
+
 ## Settings
 
 Usually the indicator, filters and folder are enough. Optional arguments include:
 
 | Argument | Meaning |
 | --- | --- |
-| `max_cells = 500000` | Up to 500,000 filter combinations per initial part, not output rows. Default: 100,000. |
-| `max_requests = 40` | At most 40 HTTP requests per invocation, including retries and token requests. A ceiling, not a download plan. Default: 1,000. |
+| `max_combinations = 500000` | Up to 500,000 filter combinations per initial part, not output rows. Default: 100,000. |
+| `time_limit_seconds = 3600` | One hour per invocation, including pauses and retries. Default: 3,600 seconds. |
 | `timeout_seconds = 300` | Allow five minutes per request, including transfer. |
 | `request_pause = c(30, 60)` | Wait 30–60 seconds between requests. |
 
-Increasing `max_cells` usually reduces the number of parts in a new job, but does
-not change `max_requests`. Existing partitions are not merged on resume. Applied
+Increasing `max_combinations` usually reduces the number of parts in a new job,
+but makes each request heavier for Fedstat. Existing partitions are not merged on resume. Applied
 settings are shown at startup. See `?fedstat_download` and [MIGRATION.md](MIGRATION.md)
 for retry, token, User-Agent and connection settings.
 

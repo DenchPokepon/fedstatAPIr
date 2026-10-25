@@ -5,7 +5,7 @@ small fixtures, without a test framework or live Fedstat traffic.
 
 ```sh
 R CMD build .
-R CMD check --as-cran fedstatAPIr_1.1.0.9003.tar.gz
+R CMD check --as-cran fedstatAPIr_1.1.0.9004.tar.gz
 ```
 
 For a quicker iteration after installing the source:
@@ -77,20 +77,20 @@ Rscript tools/prices.R ../fedstat-price-check
 Defaults: indicator 31074, January 2024, all territories, goods and indicator
 types. Optional positional arguments are output directory, year and period label.
 This is one month, not the entire historical dataset. The script requires version
-1.1.0.9003 or later, prints warnings immediately and saves session information.
+1.1.0.9004 or later, prints warnings immediately and saves session information.
 
-The console labels `HTTP 1; limit 40` as a request count and ceiling, not a
-planned number of parts. `max_cells` controls partition size independently;
-raising it does not merge partitions already saved in a checkpoint. Startup
-output shows both settings.
+The default allowance is one hour per invocation, including requests, pauses and
+retries. There is no HTTP-count ceiling. `max_combinations` controls partition
+size; raising it does not merge existing checkpoint partitions. Startup output
+shows the active size and time allowance.
 
-The limit is 40 HTTP requests per invocation, including metadata, token GETs,
-retries and recovery. Requests have 30–60 second pauses, a 300-second total timeout,
-20-second connection timeout and 90-second low-speed limit. The downloader can
-recover automatically after a cooldown and try smaller parts following repeated
-export rejection. It never resets the request budget automatically. Service
-outages or persistent refusals may still prevent completion; the same command
-resumes saved progress. Do not change the selection while reusing its folder.
+Requests have 30–60 second pauses, a 300-second timeout (shortened to remaining
+run time), a 20-second connection timeout and a 90-second low-speed limit.
+The downloader can recover after a cooldown and try smaller parts following
+repeated export rejection. It never resets the time allowance automatically.
+On expiry, repeat the same command to resume saved progress with a fresh hour.
+Local parsing, validation and saving may extend elapsed time. Do not change the
+selection while reusing its folder.
 
 Send `download.log` and `session-info.txt` from the output folder for diagnosis.
 Both append across runs. `download.log` is UTF-8 JSON Lines, with run IDs, UTC

@@ -6,7 +6,7 @@ args <- commandArgs(trailingOnly = TRUE)
 path <- if (length(args)) args[[1L]] else "fedstat-price-check"
 year <- if (length(args) >= 2L) args[[2L]] else "2024"
 month <- if (length(args) >= 3L) args[[3L]] else "\u044f\u043d\u0432\u0430\u0440\u044c"
-if (packageVersion("fedstatAPIr") < "1.1.0.9003") stop("Install the updated package (>= 1.1.0.9003) first.")
+if (packageVersion("fedstatAPIr") < "1.1.0.9004") stop("Install the updated package (>= 1.1.0.9004) first.")
 dir.create(path, recursive = TRUE, showWarnings = FALSE)
 path <- normalizePath(path, mustWork = TRUE)
 # No tokens, cookies or HTTP headers are included in the diagnostic files.
@@ -29,8 +29,8 @@ cat("Diagnostic log:", file.path(path, "download.log"), "\n")
 job <- tryCatch(fedstat_download(
   "31074",
   filters = filters, path = path,
-  max_cells = 100000, token_policy = "reuse",
-  max_requests = 40L, retry_max_times = 2L, max_failures = 6L,
+  max_combinations = 100000, token_policy = "reuse",
+  time_limit_seconds = 3600, retry_max_times = 2L, max_failures = 6L,
   request_pause = c(30, 60), timeout_seconds = 300,
   httr::user_agent("fedstatAPIr-price-check/1.0"),
   httr::config(connecttimeout = 20, low_speed_limit = 1, low_speed_time = 90)

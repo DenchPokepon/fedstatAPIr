@@ -11,18 +11,24 @@
 #' @param path Directory for the manifest and verified parts. Use one directory
 #'   per selection. New jobs store data in a `parts/` subdirectory; old flat jobs
 #'   resume unchanged. Only one process may write to it at a time.
-#' @param max_cells Maximum product of selected dimension cardinalities per
+#' @param max_combinations Maximum product of selected dimension cardinalities per
 #'   initial request. A conservative size proxy, not an expected row count or a
 #'   server guarantee. Failed exports can be subdivided further.
+#' @param max_cells Deprecated alias for `max_combinations`. Existing calls still work.
+#' @param time_limit_seconds Time allowance for this invocation, in seconds;
+#'   defaults to 3600 (one hour). Includes requests, pauses and local processing.
+#'   Requests are capped by the remaining time. Local validation and saving finish
+#'   safely before stopping, so these operations can extend the elapsed time.
 #' @param token_policy `"reuse"` reuses a token until rejection; `"refresh"` gets
 #'   a fresh token before each subsequent export. Metadata is reused either way.
 #' @param timeout_seconds Maximum duration of each HTTP request, including transfer.
 #' @param retry_max_times Maximum export attempts per part before subdivision or
 #'   cooldown, including the first. Metadata and token GETs have their own attempts;
-#'   all requests count toward `max_requests`.
+#'   all attempts share the invocation's time allowance.
 #' @param request_pause Seconds to wait between HTTP requests: a number or a
 #'   two-number range for random pauses. Retry delays and Retry-After can extend it.
-#' @param max_requests Maximum HTTP requests in this invocation, including GETs.
+#' @param max_requests Deprecated optional HTTP ceiling. Defaults to `NULL` (none).
+#'   Explicit values remain enforced for compatibility; prefer `time_limit_seconds`.
 #' @param max_depth Maximum binary subdivisions from the original selection.
 #' @param max_failures Pause recovery after this many consecutive transient or
 #'   ambiguous export failures; this limits subdivision during an outage.
@@ -43,9 +49,9 @@
 #'   changed dimension layouts stop the job. Tokens are never saved. Delete a
 #'   stale `.lock` directory only after confirming no process is using the job.
 #'
-#'   Defaults are deliberately conservative: 100,000 nominal cells, 30--60 seconds
-#'   between requests, two attempts per part, and at most 1,000 HTTP requests per
-#'   invocation. Three additional cooldown/recovery cycles are allowed without a
+#'   Defaults are deliberately conservative: 100,000 filter combinations, 30--60
+#'   seconds between requests, two attempts per part, and one hour per invocation.
+#'   Three additional cooldown/recovery cycles are allowed without a
 #'   successfully saved part, initially waiting 60 seconds and doubling each time.
 #'   An export redirect rejected again after token repair may be subdivided, but
 #'   is never accepted as empty data. Token/metadata failures do not cause splitting.
@@ -70,13 +76,28 @@
 fedstat_download <- function(indicator_id, ..., filters = list(), path,
                              max_cells = 100000, token_policy = c("reuse", "refresh"),
                              timeout_seconds = 180, retry_max_times = 2L,
-                             request_pause = c(30, 60), max_requests = 1000L,
+                             request_pause = c(30, 60), max_requests = NULL,
                              max_depth = 20L, max_failures = 6L, verbose = TRUE,
                              log_file = file.path(path, "download.log"),
-                             recovery_max_times = 3L, recovery_pause = 60) {
+                             recovery_max_times = 3L, recovery_pause = 60,
+                             max_combinations = 100000, time_limit_seconds = 3600) {
+  started <- fedstat_elapsed()
+  legacy_cells <- !missing(max_cells)
+  if (legacy_cells) {
+    if (!missing(max_combinations) && !isTRUE(max_cells == max_combinations)) {
+      stop("Use max_combinations only; it conflicts with max_cells.", call. = FALSE)
+    }
+    max_combinations <- max_cells
+  }
   token_policy <- match.arg(token_policy)
-  for (name in c("max_cells", "timeout_seconds", "retry_max_times", "max_requests", "max_depth", "max_failures")) {
-    fedstat_positive(get(name), name, integer = name %in% c("max_cells", "retry_max_times", "max_requests", "max_depth", "max_failures"))
+  for (name in c("max_combinations", "time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
+    fedstat_positive(get(name), name, integer = name %in% c("max_combinations", "retry_max_times", "max_depth", "max_failures"))
+  }
+  if (!is.null(max_requests)) fedstat_positive(max_requests, "max_requests", integer = TRUE)
+  time_left <- function() {
+    seconds <- time_limit_seconds - (fedstat_elapsed() - started)
+    if (seconds < 0.001) fedstat_time_expired(time_limit_seconds)
+    seconds
   }
   if (!is.numeric(recovery_max_times) || length(recovery_max_times) != 1L ||
     !is.finite(recovery_max_times) || recovery_max_times < 0 || recovery_max_times != floor(recovery_max_times)) {
@@ -117,6 +138,8 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   report <- fedstat_logger(log_file, indicator_id, verbose, function() {
     c(list(
       request = requests, max_requests = max_requests, part = current_part,
+      time_limit_seconds = time_limit_seconds,
+      remaining_seconds = max(0, time_limit_seconds - (fedstat_elapsed() - started)),
       attempt = current_attempt, stage = phase
     ), fedstat_progress(manifest))
   })
@@ -138,7 +161,9 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         c("fedstat_budget", "fedstat_unavailable", "fedstat_token", "fedstat_redirect"),
         function(cl) inherits(e, cl), logical(1L)
       ))
-    action <- if (inherits(e, "fedstat_budget")) {
+    action <- if (inherits(e, "fedstat_time_limit")) {
+      "Time allowance used. Repeat the same call to continue with a new time allowance."
+    } else if (inherits(e, "fedstat_budget")) {
       "Request or subdivision limit reached. Increase the indicated limit and repeat the same call to resume."
     } else if (retry) {
       "Automatic recovery stopped. Saved parts will be skipped on resume; inspect download.log if the same part fails again."
@@ -161,16 +186,18 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
   withCallingHandlers(
     {
       report("START", paste0(
-        "Indicator ", indicator_id, "; max_cells=", format(max_cells, scientific = FALSE, trim = TRUE),
-        "; max_requests=", max_requests, " (HTTP limit, not planned parts); directory: ", path
+        "Indicator ", indicator_id, "; max_combinations=", format(max_combinations, scientific = FALSE, trim = TRUE),
+        "; time limit: ", time_limit_seconds, " s (", round(time_limit_seconds / 60, 1), " min); directory: ", path
       ),
       package_version = as.character(utils::packageVersion("fedstatAPIr")),
       r_version = as.character(getRversion()), platform = R.version$platform,
-      max_cells = max_cells, token_policy = token_policy, timeout_seconds = timeout_seconds,
+      max_cells = max_combinations, max_combinations = max_combinations, token_policy = token_policy, timeout_seconds = timeout_seconds,
       request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
       max_failures = max_failures, log_file = log_file,
       recovery_max_times = recovery_max_times, recovery_pause = recovery_pause
       )
+      if (legacy_cells) report("DEPRECATED", "max_cells is now max_combinations; the supplied value is retained. Rename this argument in your call.")
+      if (!is.null(max_requests)) report("DEPRECATED", "max_requests is deprecated but your explicit ceiling remains active. Remove it to use time_limit_seconds (default: 3600 seconds).")
       manifest <- if (file.exists(manifest_path)) readRDS(manifest_path) else NULL
       if (is.null(manifest) && length(list.files(c(path, file.path(path, "parts")), pattern = "^part-[0-9.]+[.]rds$"))) {
         stop("Saved parts exist without a manifest; restore manifest.rds or use a new path.", call. = FALSE)
@@ -203,6 +230,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
       failures <- recoveries <- 0L
       session <- NULL
       recover <- function(error) {
+        time_left()
         possible <- fedstat_retryable(error) || inherits(error, "fedstat_unavailable") ||
           (identical(error$stage, "export") && any(vapply(
             c("fedstat_redirect", "fedstat_token", "fedstat_unexpected_response"),
@@ -211,7 +239,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         if (!possible || recoveries >= recovery_max_times) {
           return(FALSE)
         }
-        if (requests >= max_requests) {
+        if (!is.null(max_requests) && requests >= max_requests) {
           fedstat_error(
             paste0("Request budget reached (", max_requests, "); repeat the call to resume."), "budget", "schedule"
           )
@@ -229,23 +257,28 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         TRUE
       }
       gate <- function() {
-        if (requests >= max_requests) {
+        time_left()
+        if (!is.null(max_requests) && requests >= max_requests) {
           fedstat_error(
             paste0("Request budget reached (", max_requests, "); repeat the call to resume."), "budget", "schedule"
           )
         }
         if (requests > 0L) {
           pause <- max(stats::runif(1L, min(request_pause), max(request_pause)), delay)
+          if (pause >= time_left()) fedstat_time_expired(time_limit_seconds, waiting = TRUE)
           until <- format(Sys.time() + pause, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
           report("WAIT", paste0("Waiting ", round(pause, 1), " s; next request after ", until),
             seconds = pause, next_request_at = until, reason = if (delay > 0) "retry" else "pacing"
           )
           Sys.sleep(pause)
         }
+        time_left()
         delay <<- 0
         requests <<- requests + 1L
       }
       attr(gate, "report") <- report
+      attr(gate, "time_left") <- time_left
+      attr(gate, "time_limit_seconds") <- time_limit_seconds
       attr(gate, "backoff") <- function(seconds) delay <<- max(delay, seconds)
       phase <- "metadata"
       # Fetch once per invocation; subsequent token refreshes do not reparse metadata.
@@ -329,6 +362,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
       repeat {
         pending <- which(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))
         if (!length(pending)) break
+        time_left()
         index <- pending[1L]
         part <- manifest$parts[[index]]
         current_part <- part$id
@@ -336,8 +370,8 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         phase <- "planning"
         selected <- selection[part$rows, , drop = FALSE]
         log_cells <- sum(log(as.numeric(table(selected$filter_field_id))))
-        if (log_cells > log(max_cells) + 1e-10) {
-          if (!split_part(index, "size_limit")) stop("Selection cannot be reduced below max_cells.", call. = FALSE)
+        if (log_cells > log(max_combinations) + 1e-10) {
+          if (!split_part(index, "size_limit")) stop("Selection cannot be reduced below max_combinations.", call. = FALSE)
           next
         }
         selected <- fedstat_attach_session(selected, session)
@@ -350,7 +384,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
               if (token_policy == "refresh" && isTRUE(session$used)) session$token <- NULL
               report("PART", paste0(
                 "Preparing part ", part$id, "; attempt ", attempt, "/", retry_max_times,
-                "; nominal cells: ", round(exp(log_cells))
+                "; filter combinations: ", round(exp(log_cells))
               ))
               bytes <- fedstat_post_data_ids_filtered(selected, ...,
                 timeout_seconds = timeout_seconds,

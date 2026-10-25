@@ -14,13 +14,15 @@ fedstat_download(
   timeout_seconds = 180,
   retry_max_times = 2L,
   request_pause = c(30, 60),
-  max_requests = 1000L,
+  max_requests = NULL,
   max_depth = 20L,
   max_failures = 6L,
   verbose = TRUE,
   log_file = file.path(path, "download.log"),
   recovery_max_times = 3L,
-  recovery_pause = 60
+  recovery_pause = 60,
+  max_combinations = 1e+05,
+  time_limit_seconds = 3600
 )
 }
 \arguments{
@@ -36,9 +38,7 @@ string \code{"*"} to explicitly select every value of every dimension.}
 per selection. New jobs store data in a \verb{parts/} subdirectory; old flat jobs
 resume unchanged. Only one process may write to it at a time.}
 
-\item{max_cells}{Maximum product of selected dimension cardinalities per
-initial request. A conservative size proxy, not an expected row count or a
-server guarantee. Failed exports can be subdivided further.}
+\item{max_cells}{Deprecated alias for \code{max_combinations}. Existing calls still work.}
 
 \item{token_policy}{\code{"reuse"} reuses a token until rejection; \code{"refresh"} gets
 a fresh token before each subsequent export. Metadata is reused either way.}
@@ -47,12 +47,13 @@ a fresh token before each subsequent export. Metadata is reused either way.}
 
 \item{retry_max_times}{Maximum export attempts per part before subdivision or
 cooldown, including the first. Metadata and token GETs have their own attempts;
-all requests count toward \code{max_requests}.}
+all attempts share the invocation's time allowance.}
 
 \item{request_pause}{Seconds to wait between HTTP requests: a number or a
 two-number range for random pauses. Retry delays and Retry-After can extend it.}
 
-\item{max_requests}{Maximum HTTP requests in this invocation, including GETs.}
+\item{max_requests}{Deprecated optional HTTP ceiling. Defaults to \code{NULL} (none).
+Explicit values remain enforced for compatibility; prefer \code{time_limit_seconds}.}
 
 \item{max_depth}{Maximum binary subdivisions from the original selection.}
 
@@ -71,6 +72,15 @@ a successfully saved part. Use zero to stop after ordinary retries.}
 
 \item{recovery_pause}{Initial cooldown in seconds, doubled on each consecutive
 recovery (up to 64 times this value). Request pauses and Retry-After still apply.}
+
+\item{max_combinations}{Maximum product of selected dimension cardinalities per
+initial request. A conservative size proxy, not an expected row count or a
+server guarantee. Failed exports can be subdivided further.}
+
+\item{time_limit_seconds}{Time allowance for this invocation, in seconds;
+defaults to 3600 (one hour). Includes requests, pauses and local processing.
+Requests are capped by the remaining time. Local validation and saving finish
+safely before stopping, so these operations can extend the elapsed time.}
 }
 \value{
 A \code{fedstat_download} result with directory, completion status and part
@@ -88,9 +98,9 @@ values do not expand that selection; removed or changed selected values and
 changed dimension layouts stop the job. Tokens are never saved. Delete a
 stale \code{.lock} directory only after confirming no process is using the job.
 
-Defaults are deliberately conservative: 100,000 nominal cells, 30--60 seconds
-between requests, two attempts per part, and at most 1,000 HTTP requests per
-invocation. Three additional cooldown/recovery cycles are allowed without a
+Defaults are deliberately conservative: 100,000 filter combinations, 30--60
+seconds between requests, two attempts per part, and one hour per invocation.
+Three additional cooldown/recovery cycles are allowed without a
 successfully saved part, initially waiting 60 seconds and doubling each time.
 An export redirect rejected again after token repair may be subdivided, but
 is never accepted as empty data. Token/metadata failures do not cause splitting.

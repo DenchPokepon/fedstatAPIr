@@ -1,7 +1,8 @@
 # Compatibility and recovery
 
 No existing exported function was renamed or removed. Existing arguments,
-defaults, positional calling conventions and successful return types remain.
+positional calling conventions and successful return types remain. The batch
+downloader default budget changes in 1.1.0.9004 as described below.
 The new `fedstat_download()` and `fedstat_collect()` functions are optional.
 
 ## Existing pipelines
@@ -56,10 +57,28 @@ parts. Scripts can use `tryCatch(..., interrupt = function(e)
 quit(save = "no", status = 130, runLast = FALSE))` to exit without an error report.
 The `curl_interrupt` option is enabled during requests and restored on exit.
 
-Console output now uses `[HTTP 1; limit 40]`: 40 is the invocation's request
-ceiling, not a planned part count. JSON log field names remain unchanged.
-Changing `max_cells` does not change that ceiling or merge existing partitions.
-For the Windows R 4.3 launcher caveat, see [tools/README.md](tools/README.md).
+## Time allowance and request size (1.1.0.9004)
+
+`fedstat_download()` now defaults to `time_limit_seconds = 3600` (one hour),
+with no HTTP-count ceiling. This replaces the previous implicit 1,000-request
+ceiling. Requests, pauses, retries and local processing share this allowance.
+Requests are capped by remaining time; required pauses are never shortened to
+fit. Local parsing, validation and saving finish safely and may extend elapsed
+time. Expiry raises `fedstat_time_limit`, retaining verified parts. Repeat the
+same call to resume with a fresh allowance; do not change the output folder.
+
+Rename `max_cells` to **`max_combinations`**: the value is a product of filter
+cardinalities, not a row count. Its default remains 100,000. Old explicit
+`max_cells` values still work and produce a `DEPRECATED` log event with the
+replacement name. Conflicting values supplied under both names raise an error.
+
+Old explicit `max_requests` ceilings remain enforced for compatibility and
+produce a `DEPRECATED` event. Remove that argument to use the time allowance
+alone. `tools/prices.R` now uses a one-hour allowance without a count ceiling.
+Console request counts remain informational; logs add `time_limit_seconds`,
+`remaining_seconds` and `max_combinations`, retaining the legacy JSON fields.
+No saved-file migration or redownload is needed. For the Windows R 4.3 launcher
+caveat, see [tools/README.md](tools/README.md).
 
 ## Network settings
 
@@ -130,7 +149,8 @@ The existing six public functions retain their signatures and defaults. On the
 new batch API, `retry_max_times` still bounds export attempts before subdivision
 or cooldown. A transient token GET now has its own retry allowance, so a failed
 refresh does not necessarily consume the last export opportunity. Every GET and
-POST, including retries and cooldown recovery, remains inside `max_requests`.
+POST, including retries and cooldown recovery, shares the invocation budget
+(time by default since 1.1.0.9004).
 
 Two additive arguments control automatic recovery: `recovery_max_times = 3L`
 and `recovery_pause = 60`. After ordinary attempts are exhausted, recoverable

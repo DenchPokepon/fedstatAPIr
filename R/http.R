@@ -94,13 +94,28 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
   agent <- fedstat_user_agent(c(list(defaults), list(...)))
   for (attempt in seq_len(attempts)) {
     before()
+    time_left <- attr(before, "time_left")
+    available <- if (is.function(time_left)) time_left() else Inf
+    request_seconds <- timeout_seconds
+    deadline <- NULL
+    if (is.finite(available)) {
+      configs <- Filter(
+        function(x) inherits(x, "request"),
+        c(list(defaults, httr::timeout(timeout_seconds)), list(...))
+      )
+      settings <- do.call(c, configs)$options
+      configured <- tail(settings[names(settings) %in% c("timeout", "timeout_ms")], 1L)
+      request_seconds <- configured[[1L]] / if (names(configured) == "timeout_ms") 1000 else 1
+      if (request_seconds == 0) request_seconds <- Inf
+      deadline <- httr::timeout(min(request_seconds, available))
+    }
     fedstat_event(before, "REQUEST", paste(method, stage), stage = stage, method = method, http_attempt = attempt)
     started <- proc.time()[["elapsed"]]
     result <- tryCatch(
       {
         response <- httr::VERB(method, url, defaults,
           httr::timeout(timeout_seconds), httr::config(followlocation = FALSE),
-          ..., agent,
+          ..., agent, deadline,
           handle = handle
         )
         fedstat_response(response, stage)
@@ -147,6 +162,13 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
       status = result$status_code, seconds = seconds, bytes = length(result$content)
       )
       return(result)
+    }
+    if (is.function(time_left)) {
+      if (available <= request_seconds && inherits(result, "fedstat_transient") &&
+        grepl("timed? ?out|timeout", conditionMessage(result), ignore.case = TRUE)) {
+        fedstat_time_expired(attr(before, "time_limit_seconds"))
+      }
+      time_left()
     }
     fedstat_event(before, "REQUEST_ERROR", conditionMessage(result),
       stage = stage,
