@@ -10,9 +10,13 @@ if (packageVersion("fedstatAPIr") < "1.1.0.9002") stop("Install the updated pack
 dir.create(path, recursive = TRUE, showWarnings = FALSE)
 path <- normalizePath(path, mustWork = TRUE)
 # No tokens, cookies or HTTP headers are included in the diagnostic files.
-cat(paste(c(paste("Captured:", format(Sys.time(), tz = "UTC", usetz = TRUE)),
-            capture.output(sessionInfo()), ""), collapse = "\n"),
-    file = file.path(path, "session-info.txt"), append = TRUE)
+cat(
+  paste(c(
+    paste("Captured:", format(Sys.time(), tz = "UTC", usetz = TRUE)),
+    capture.output(sessionInfo()), ""
+  ), collapse = "\n"),
+  file = file.path(path, "session-info.txt"), append = TRUE
+)
 filters <- list(
   "\u0413\u043e\u0434" = year,
   "\u041f\u0435\u0440\u0438\u043e\u0434" = month,
@@ -23,7 +27,8 @@ filters <- list(
 cat("CPI 31074:", year, month, "- all territories, goods and indicator types.\n")
 cat("Diagnostic log:", file.path(path, "download.log"), "\n")
 job <- fedstat_download(
-  "31074", filters = filters, path = path,
+  "31074",
+  filters = filters, path = path,
   max_cells = 100000, token_policy = "reuse",
   max_requests = 40L, retry_max_times = 2L, max_failures = 6L,
   request_pause = c(30, 60), timeout_seconds = 300,

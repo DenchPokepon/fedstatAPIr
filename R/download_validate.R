@@ -43,26 +43,32 @@ fedstat_validate_parts <- function(manifest, path, report = function(...) NULL) 
     for (group in unique(bucket)) {
       connection <- file(file.path(scratch, as.character(group)), "ab")
       tryCatch(serialize(list(keys = keys[bucket == group], part = part$id), connection, version = 2),
-               finally = close(connection))
+        finally = close(connection)
+      )
     }
     report("VALIDATE_PART", paste0("Indexed part ", part$id, ": ", nrow(data), " rows."), part = part$id)
   }
   rm(data, keys)
   for (bucket_file in list.files(scratch, full.names = TRUE)) {
     connection <- file(bucket_file, "rb")
-    chunks <- tryCatch({
-      values <- list()
-      size <- file.info(bucket_file)$size
-      while (seek(connection) < size) values[[length(values) + 1L]] <- unserialize(connection)
-      values
-    }, finally = close(connection))
+    chunks <- tryCatch(
+      {
+        values <- list()
+        size <- file.info(bucket_file)$size
+        while (seek(connection) < size) values[[length(values) + 1L]] <- unserialize(connection)
+        values
+      },
+      finally = close(connection)
+    )
     keys <- unlist(lapply(chunks, `[[`, "keys"), use.names = FALSE)
     duplicate <- anyDuplicated(keys)
     if (duplicate) {
       first <- match(keys[duplicate], keys)
       owner <- rep(vapply(chunks, `[[`, "", "part"), lengths(lapply(chunks, `[[`, "keys")))
       stop("Duplicate observation keys across parts ", owner[first], " and ", owner[duplicate],
-           ". Download is not marked complete; inspect these files before resuming.", call. = FALSE)
+        ". Download is not marked complete; inspect these files before resuming.",
+        call. = FALSE
+      )
     }
   }
   report("VALIDATED", "Observation keys are unique across all saved parts.")

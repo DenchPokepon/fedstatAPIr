@@ -65,7 +65,6 @@
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
 fedstat_data_ids_filter <- function(data_ids, filters = list(), disable_warnings = FALSE) {
-
   # workaround for `:=` and CMD check
   filter_field_title.str_norm <- filter_field_title <- filter_value_title.str_norm <- filter_value_title <- filter_field_id <-
     count <- filters_specified_by_user <- NULL

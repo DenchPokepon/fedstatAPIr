@@ -79,23 +79,29 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            loading_steps_verbose = TRUE,
                                            return_type = c("data", "dictionary"),
                                            try_to_parse_ObsValue = TRUE) {
-
   fedstat_positive(retry_max_times, "retry_max_times", integer = TRUE)
   data_ids <- NULL
   refreshed <- FALSE
   for (attempt in seq_len(retry_max_times)) {
-    result <- tryCatch({
-      if (is.null(data_ids)) {
-        if (loading_steps_verbose) message("Loading indicator ", indicator_id, " filters ...")
-        ids <- fedstat_get_data_ids(indicator_id, ..., timeout_seconds = timeout_seconds,
-                                    retry_max_times = 1L, httr_verbose = httr_verbose)
-        data_ids <- fedstat_data_ids_filter(ids, filters, disable_warnings)
-      }
-      if (loading_steps_verbose) message("Downloading indicator ", indicator_id, " ...")
-      bytes <- fedstat_post_data_ids_filtered(data_ids, ..., timeout_seconds = timeout_seconds,
-                                              retry_max_times = 1L, httr_verbose = httr_verbose)
-      fedstat_parse_sdmx_to_table(bytes, return_type, try_to_parse_ObsValue)
-    }, error = identity)
+    result <- tryCatch(
+      {
+        if (is.null(data_ids)) {
+          if (loading_steps_verbose) message("Loading indicator ", indicator_id, " filters ...")
+          ids <- fedstat_get_data_ids(indicator_id, ...,
+            timeout_seconds = timeout_seconds,
+            retry_max_times = 1L, httr_verbose = httr_verbose
+          )
+          data_ids <- fedstat_data_ids_filter(ids, filters, disable_warnings)
+        }
+        if (loading_steps_verbose) message("Downloading indicator ", indicator_id, " ...")
+        bytes <- fedstat_post_data_ids_filtered(data_ids, ...,
+          timeout_seconds = timeout_seconds,
+          retry_max_times = 1L, httr_verbose = httr_verbose
+        )
+        fedstat_parse_sdmx_to_table(bytes, return_type, try_to_parse_ObsValue)
+      },
+      error = identity
+    )
     if (!inherits(result, "error")) {
       if (loading_steps_verbose) message("Done")
       return(result)
@@ -109,8 +115,12 @@ fedstat_data_load_with_filters <- function(indicator_id,
       data_ids <- fedstat_attach_session(data_ids, session)
     }
     if (token) refreshed <- TRUE
-    if (loading_steps_verbose) message(conditionMessage(result), " Retrying (", attempt + 1L,
-                                      "/", retry_max_times, ") ...")
+    if (loading_steps_verbose) {
+      message(
+        conditionMessage(result), " Retrying (", attempt + 1L,
+        "/", retry_max_times, ") ..."
+      )
+    }
     Sys.sleep(fedstat_backoff(attempt, result))
   }
 }

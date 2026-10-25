@@ -71,26 +71,32 @@ fedstat_get_data_ids <- function(indicator_id,
                                  timeout_seconds = 180,
                                  retry_max_times = 3,
                                  httr_verbose = NULL) {
-  fedstat_read_ids(indicator_id, ..., timeout_seconds = timeout_seconds,
-                   retry_max_times = retry_max_times, httr_verbose = httr_verbose)
+  fedstat_read_ids(indicator_id, ...,
+    timeout_seconds = timeout_seconds,
+    retry_max_times = retry_max_times, httr_verbose = httr_verbose
+  )
 }
 
 fedstat_read_ids <- function(indicator_id, ..., timeout_seconds = 180,
                              retry_max_times = 3, httr_verbose = NULL,
                              before = function() NULL) {
   if (length(indicator_id) != 1L || is.na(indicator_id) ||
-      !grepl("^[0-9]+$", as.character(indicator_id))) {
+    !grepl("^[0-9]+$", as.character(indicator_id))) {
     stop("indicator_id must be a single numeric indicator code.", call. = FALSE)
   }
   base_url <- "https://www.fedstat.ru"
   handle <- httr::handle(base_url)
   response <- fedstat_request("GET", paste0(base_url, "/indicator/", indicator_id),
-    httr_verbose, ..., handle = handle, timeout_seconds = timeout_seconds,
-    attempts = retry_max_times, stage = "metadata", before = before)
+    httr_verbose, ...,
+    handle = handle, timeout_seconds = timeout_seconds,
+    attempts = retry_max_times, stage = "metadata", before = before
+  )
   html <- xml2::read_html(response$content, encoding = "UTF-8")
   result <- tryCatch(fedstat_metadata(html), error = function(e) {
-    fedstat_error(paste0("Cannot read indicator filters: ", conditionMessage(e),
-                        " The page may be unavailable or have changed."), "metadata", "metadata")
+    fedstat_error(paste0(
+      "Cannot read indicator filters: ", conditionMessage(e),
+      " The page may be unavailable or have changed."
+    ), "metadata", "metadata")
   })
   session <- tryCatch(fedstat_token(html, indicator_id, handle, base_url),
     fedstat_metadata = function(e) {
@@ -101,7 +107,8 @@ fedstat_read_ids <- function(indicator_id, ..., timeout_seconds = 180,
       state$handle <- handle
       state$used <- FALSE
       state
-    })
+    }
+  )
   fedstat_attach_session(result, session)
 }
 

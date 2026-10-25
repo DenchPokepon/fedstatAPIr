@@ -6,8 +6,10 @@ fedstat_token <- function(html, indicator_id, handle, base_url) {
   name <- values[match("struts.token.name", names)]
   token <- values[match(name, names)]
   if (is.na(name) || is.na(token) || !nzchar(name) || !nzchar(token)) {
-    fedstat_error("No download token on the indicator page; the page may be unavailable or have changed.",
-                  "metadata", "token")
+    fedstat_error(
+      "No download token on the indicator page; the page may be unavailable or have changed.",
+      "metadata", "token"
+    )
   }
   session <- new.env(parent = emptyenv())
   session$token_name <- name
@@ -31,7 +33,9 @@ fedstat_attach_session <- function(data_ids, session) {
 
 fedstat_session <- function(data_ids) {
   session <- attr(data_ids, "fedstat_session")
-  if (is.environment(session)) return(session)
+  if (is.environment(session)) {
+    return(session)
+  }
   session <- new.env(parent = emptyenv())
   session$token <- attr(data_ids, "fedstat_csrf_token")
   session$token_name <- attr(data_ids, "fedstat_csrf_token_name")
@@ -57,10 +61,14 @@ fedstat_refresh <- function(session, ..., timeout_seconds, attempts = 1L,
                             before = function() NULL) {
   fedstat_event(before, "TOKEN_REFRESH", "Obtaining a fresh token; resolved filters are retained.", stage = "token")
   response <- fedstat_request("GET", paste0(session$base_url, "/indicator/", session$indicator_id),
-    ..., handle = session$handle, timeout_seconds = timeout_seconds, attempts = attempts,
-    stage = "token", before = before)
-  fresh <- fedstat_token(xml2::read_html(response$content, encoding = "UTF-8"),
-                         session$indicator_id, session$handle, session$base_url)
+    ...,
+    handle = session$handle, timeout_seconds = timeout_seconds, attempts = attempts,
+    stage = "token", before = before
+  )
+  fresh <- fedstat_token(
+    xml2::read_html(response$content, encoding = "UTF-8"),
+    session$indicator_id, session$handle, session$base_url
+  )
   session$token <- fresh$token
   session$token_name <- fresh$token_name
   session$used <- FALSE

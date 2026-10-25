@@ -15,10 +15,12 @@ parse_js2 <- function(script) {
     paste0("{", ... = ., "}") %>%
     jsonlite::fromJSON(simplifyVector = FALSE)
 
-  new_names <- c("left_columns" = "lineObjectIds",
-                 "top_columns" = "columnObjectIds",
-                 "groups" = "lineObjectIds",
-                 "filterObjectIds" = "lineObjectIds")
+  new_names <- c(
+    "left_columns" = "lineObjectIds",
+    "top_columns" = "columnObjectIds",
+    "groups" = "lineObjectIds",
+    "filterObjectIds" = "lineObjectIds"
+  )
 
   names(js_prep) <- new_names[names(js_prep)]
 

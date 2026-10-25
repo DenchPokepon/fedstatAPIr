@@ -61,7 +61,7 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
     fedstat_error("Invalid or incomplete SDMX XML response.", "parse", "parse")
   })
   if (xml2::xml_name(xml) != "GenericData" ||
-      !length(xml2::xml_find_all(xml, "./*[local-name()='DataSet']"))) {
+    !length(xml2::xml_find_all(xml, "./*[local-name()='DataSet']"))) {
     fedstat_error("Expected an SDMX GenericData document with a DataSet.", "parse", "parse")
   }
   if (!is.null(indicator_id)) {
@@ -72,8 +72,10 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
   }
   truncated <- xml2::xml_text(xml2::xml_find_all(xml, "./*[local-name()='Header']/*[local-name()='Truncated']"))
   if (any(tolower(trimws(truncated)) %in% c("true", "1"))) {
-    fedstat_error("Fedstat marked this export as truncated; request a smaller selection.",
-                  "truncated", "export")
+    fedstat_error(
+      "Fedstat marked this export as truncated; request a smaller selection.",
+      "truncated", "export"
+    )
   }
   CodeList <- xml2::xml_find_all(xml, "/*[local-name()='GenericData']/*[local-name()='CodeLists']/*[local-name()='CodeList']")
 
@@ -105,19 +107,25 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
   if (anyDuplicated(codelist_tbl[, c("field_id", "value_id")])) {
     fedstat_error("Duplicate codes in the SDMX dictionary.", "parse", "parse")
   }
-  if (return_type == "dictionary") return(codelist_tbl)
+  if (return_type == "dictionary") {
+    return(codelist_tbl)
+  }
 
   namespaces <- xml2::xml_ns(xml)
   generic <- unname(namespaces[grepl("/generic$", namespaces)])
   observations <- if (length(generic) == 1L) {
     xml2::xml_find_num(xml, "count(//g:Obs)", ns = c(g = generic))
-  } else xml2::xml_find_num(xml, "count(//*[local-name()='Obs'])")
+  } else {
+    xml2::xml_find_num(xml, "count(//*[local-name()='Obs'])")
+  }
   rm(xml, CodeList)
   data <- if (observations) {
     data.table::as.data.table(readsdmx::read_sdmx(tmp_file))
   } else {
-    data.table::as.data.table(setNames(rep(list(character()), length(unique(codelist_tbl$field_id)) + 1L),
-                                     c(unique(codelist_tbl$field_id), "ObsValue")))
+    data.table::as.data.table(setNames(
+      rep(list(character()), length(unique(codelist_tbl$field_id)) + 1L),
+      c(unique(codelist_tbl$field_id), "ObsValue")
+    ))
   }
   if (nrow(data) != observations) fedstat_error("SDMX parser lost observations.", "parse", "parse")
   names(data) <- iconv(names(data), "UTF-8", "UTF-8")
@@ -155,7 +163,8 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
     parsed <- suppressWarnings(as.numeric(gsub(",", ".", raw, fixed = TRUE)))
     if (any(!missing & is.na(parsed))) {
       stop("Unable to parse ObsValue as numeric; set try_to_parse_ObsValue = FALSE to preserve source values.",
-           call. = FALSE)
+        call. = FALSE
+      )
     }
     data_res[, ObsValue := parsed]
   }

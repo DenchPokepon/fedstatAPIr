@@ -3,7 +3,13 @@ library(fedstatAPIr)
 ns <- asNamespace("fedstatAPIr")
 internal <- function(name) get(name, ns)
 expect_error <- function(expr, class = "error", pattern = NULL) {
-  e <- tryCatch({ force(expr); NULL }, error = identity)
+  e <- tryCatch(
+    {
+      force(expr)
+      NULL
+    },
+    error = identity
+  )
   stopifnot(inherits(e, class))
   if (!is.null(pattern)) stopifnot(grepl(pattern, conditionMessage(e)))
   invisible(e)
@@ -11,8 +17,14 @@ expect_error <- function(expr, class = "error", pattern = NULL) {
 mock <- function(name, value, code, where = ns) {
   ns <- where
   old <- get(name, ns)
-  unlockBinding(name, ns); assign(name, value, ns); lockBinding(name, ns)
-  on.exit({ unlockBinding(name, ns); assign(name, old, ns); lockBinding(name, ns) })
+  unlockBinding(name, ns)
+  assign(name, value, ns)
+  lockBinding(name, ns)
+  on.exit({
+    unlockBinding(name, ns)
+    assign(name, old, ns)
+    lockBinding(name, ns)
+  })
   force(code)
 }
 fixture <- function(name) {
@@ -21,8 +33,10 @@ fixture <- function(name) {
   path
 }
 response <- function(content, status = 200L, type = "text/html") {
-  structure(list(status_code = status, headers = list("content-type" = type),
-                 content = if (is.raw(content)) content else charToRaw(content)), class = "response")
+  structure(list(
+    status_code = status, headers = list("content-type" = type),
+    content = if (is.raw(content)) content else charToRaw(content)
+  ), class = "response")
 }
 html <- readBin(fixture("indicator.html"), "raw", file.info(fixture("indicator.html"))$size)
 xml <- readBin(fixture("generic.xml"), "raw", file.info(fixture("generic.xml"))$size)
@@ -38,8 +52,10 @@ expect_error(internal("fedstat_download_selection")(ids, list(Year = c("2024", "
 
 # Same public parser output, preserved codes, correct numeric failures, dictionary fast path.
 data <- fedstat_parse_sdmx_to_table(xml)
-stopifnot(nrow(data) == 2L, identical(data$AREA_code, c("001", "001")),
-          identical(data$ObsValue, c(123.4, 125)))
+stopifnot(
+  nrow(data) == 2L, identical(data$AREA_code, c("001", "001")),
+  identical(data$ObsValue, c(123.4, 125))
+)
 stopifnot(identical(data, fedstat_parse_sdmx_to_table(fixture("generic.xml"))))
 marker <- charToRaw(sub('value="123,4"', 'value="..."', rawToChar(xml), fixed = TRUE))
 expect_error(fedstat_parse_sdmx_to_table(marker), pattern = "try_to_parse_ObsValue = FALSE")
@@ -52,9 +68,11 @@ stopifnot(nrow(fedstat_parse_sdmx_to_table(empty)) == 0L)
 
 # Trimmed real Fedstat SDMX 1.0: series attributes, raw values and leading zeroes.
 real <- fedstat_parse_sdmx_to_table(fixture("fedstat-37089.xml"), try_to_parse_ObsValue = FALSE)
-stopifnot(identical(real$s_OKATO_code, rep("05000000000", 2L)),
-          identical(real$ObsValue, c("211765", "312597,6")),
-          identical(real$Time, c("2010", "2011")))
+stopifnot(
+  identical(real$s_OKATO_code, rep("05000000000", 2L)),
+  identical(real$ObsValue, c("211765", "312597,6")),
+  identical(real$Time, c("2010", "2011"))
+)
 expect_error(internal("fedstat_parse_sdmx")(xml, indicator_id = "999"), "fedstat_parse")
 
 # MIME parameters, safe errors, encoded repeated fields and shared token state.
@@ -66,13 +84,17 @@ for (status in c(403L, 429L, 503L, 302L)) {
 state <- attr(ids, "fedstat_session")
 state$token <- "one&two=three"
 body <- internal("fedstat_form")(ids, state, "sdmx")
-stopifnot(grepl("one%26two%3Dthree", body, fixed = TRUE),
-          lengths(regmatches(body, gregexpr("selectedFilterIds=", body, fixed = TRUE))) == nrow(ids))
+stopifnot(
+  grepl("one%26two%3Dthree", body, fixed = TRUE),
+  lengths(regmatches(body, gregexpr("selectedFilterIds=", body, fixed = TRUE))) == nrow(ids)
+)
 
 # HTTP configuration reaches BOTH fallback token GET and export POST.
 local({
-  old <- options(httr_config = httr::add_headers("User-Agent" = "global-agent"),
-                 fedstatAPIr.config = httr::config(connecttimeout = 19))
+  old <- options(
+    httr_config = httr::add_headers("User-Agent" = "global-agent"),
+    fedstatAPIr.config = httr::config(connecttimeout = 19)
+  )
   on.exit(options(old))
   captured <- list()
   legacy <- ids
@@ -84,41 +106,66 @@ local({
   }
   mock("VERB", verb, fedstat_post_data_ids_filtered(legacy,
     httr::user_agent("per-call-agent"), httr::config(connecttimeout = 7),
-    timeout_seconds = 2, retry_max_times = 1), where = asNamespace("httr"))
+    timeout_seconds = 2, retry_max_times = 1
+  ), where = asNamespace("httr"))
   stopifnot(length(captured) == 2L)
-  for (request in captured) stopifnot(request$options$useragent == "per-call-agent",
-                                    request$headers[["User-Agent"]] == "per-call-agent",
-                                    request$options$connecttimeout == 7,
-                                    request$options$timeout_ms == 2000,
-                                    !request$options$followlocation)
+  for (request in captured) {
+    stopifnot(
+      request$options$useragent == "per-call-agent",
+      request$headers[["User-Agent"]] == "per-call-agent",
+      request$options$connecttimeout == 7,
+      request$options$timeout_ms == 2000,
+      !request$options$followlocation
+    )
+  }
 })
-stopifnot(internal("fedstat_retry_after")("60") == 60,
-          is.null(internal("fedstat_retry_after")("invalid")))
+stopifnot(
+  internal("fedstat_retry_after")("60") == 60,
+  is.null(internal("fedstat_retry_after")("invalid"))
+)
 
 # Older curl versions signal simpleError, with the originating HTTP call attached.
-mock("VERB", function(...) stop(simpleError("Failure when receiving data from the peer",
-                                            call = quote(curl_fetch_memory(url, handle)))),
-  expect_error(internal("fedstat_request")("GET", "http://example.invalid",
-    handle = httr::handle("http://example.invalid"), timeout_seconds = 1,
-    stage = "metadata"), "fedstat_transient"), where = asNamespace("httr"))
+mock("VERB", function(...) {
+  stop(simpleError("Failure when receiving data from the peer",
+    call = quote(curl_fetch_memory(url, handle))
+  ))
+},
+expect_error(internal("fedstat_request")("GET", "http://example.invalid",
+  handle = httr::handle("http://example.invalid"), timeout_seconds = 1,
+  stage = "metadata"), "fedstat_transient"),
+where = asNamespace("httr")
+)
 
 # Retry recovery performs one metadata read, refreshes the token, and preserves selection.
 gets <- exports <- refreshes <- 0L
-mock("fedstat_get_data_ids", function(...) { gets <<- gets + 1L; ids },
+mock(
+  "fedstat_get_data_ids", function(...) {
+    gets <<- gets + 1L
+    ids
+  },
   mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
     exports <<- exports + 1L
     if (exports == 1L) internal("fedstat_error")("expired", "token", "export")
     stopifnot(is.null(attr(data_ids, "fedstat_session")$token))
     xml
-  }, mock("fedstat_backoff", function(...) 0,
-    stopifnot(nrow(fedstat_data_load_with_filters("31074", filters = list(Year = "*", Area = "*"),
-                                                 loading_steps_verbose = FALSE)) == 2L))))
+  }, mock(
+    "fedstat_backoff", function(...) 0,
+    stopifnot(nrow(fedstat_data_load_with_filters("31074",
+      filters = list(Year = "*", Area = "*"),
+      loading_steps_verbose = FALSE
+    )) == 2L)
+  ))
+)
 stopifnot(gets == 1L, exports == 2L)
 
 # Labels cannot disguise conflicting observations with identical source codes.
-expect_error(internal("fedstat_check_data")(data.frame(AREA = c("old", "new"),
-  AREA_code = c("001", "001"), Time = c("2024", "2024"), ObsValue = c("1", "2"))),
-  pattern = "Duplicate observation keys")
+expect_error(
+  internal("fedstat_check_data")(data.frame(
+    AREA = c("old", "new"),
+    AREA_code = c("001", "001"), Time = c("2024", "2024"), ObsValue = c("1", "2")
+  )),
+  pattern = "Duplicate observation keys"
+)
 
 # Batch fixtures return the exact Cartesian selection so union/duplicate tests are meaningful.
 fake_data <- function(selected) {
@@ -128,20 +175,29 @@ fake_data <- function(selected) {
   out
 }
 with_batch <- function(code) {
-  mock("fedstat_read_ids", function(..., before = function() NULL) { before(); ids },
+  mock(
+    "fedstat_read_ids", function(..., before = function() NULL) {
+      before()
+      ids
+    },
     mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
       before <- attr(data_ids, "fedstat_session")$before
       if (!is.null(before)) before()
       serialize(fake_data(data_ids), NULL)
-    }, mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw), force(code))))
+    }, mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw), force(code)))
+  )
 }
 path <- tempfile()
 with_batch({
-  job <- fedstat_download("31074", filters = "*", path = path, max_cells = 2,
-                          request_pause = 0, verbose = FALSE, recovery_max_times = 0)
+  job <- fedstat_download("31074",
+    filters = "*", path = path, max_cells = 2,
+    request_pause = 0, verbose = FALSE, recovery_max_times = 0
+  )
   stopifnot(job$complete, nrow(job$parts) == 2L, nrow(fedstat_collect(job)) == 4L)
-  mock("fedstat_read_ids", function(...) stop("Must not make a network call"),
-    stopifnot(fedstat_download("31074", filters = "*", path = path, verbose = FALSE, recovery_max_times = 0)$complete))
+  mock(
+    "fedstat_read_ids", function(...) stop("Must not make a network call"),
+    stopifnot(fedstat_download("31074", filters = "*", path = path, verbose = FALSE, recovery_max_times = 0)$complete)
+  )
   expect_error(fedstat_download("31074", filters = list(Year = "2024"), path = path, verbose = FALSE, recovery_max_times = 0), pattern = "different selection")
 })
 # Integrity checks detect tampering instead of silently accepting damaged checkpoints.
@@ -154,23 +210,38 @@ unlink(path, recursive = TRUE)
 # Budget exhaustion preserves the first part; resume fetches only the unfinished part.
 path <- tempfile()
 with_batch({
-  expect_error(fedstat_download("31074", filters = "*", path = path, max_cells = 2,
-                                request_pause = 0, max_requests = 2, verbose = FALSE, recovery_max_times = 0), "fedstat_budget")
+  expect_error(fedstat_download("31074",
+    filters = "*", path = path, max_cells = 2,
+    request_pause = 0, max_requests = 2, verbose = FALSE, recovery_max_times = 0
+  ), "fedstat_budget")
   m <- readRDS(file.path(path, "manifest.rds"))
   stopifnot(sum(vapply(m$parts, function(p) p$status == "complete", logical(1L))) == 1L)
-  stopifnot(fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-                             max_requests = 2, verbose = FALSE, recovery_max_times = 0)$complete)
+  stopifnot(fedstat_download("31074",
+    filters = "*", path = path, request_pause = 0,
+    max_requests = 2, verbose = FALSE, recovery_max_times = 0
+  )$complete)
 })
 unlink(path, recursive = TRUE)
 
 # A token/metadata-stage timeout must not create subdivisions.
 for (stage in c("token", "metadata")) {
   path <- tempfile()
-  mock("fedstat_read_ids", function(..., before = function() NULL) { before(); ids },
-    mock("fedstat_post_data_ids_filtered", function(...) internal("fedstat_error")("timeout", "transient", stage),
-      mock("fedstat_backoff", function(...) 0,
-        expect_error(fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-                                      verbose = FALSE, recovery_max_times = 0), "fedstat_transient"))))
+  mock(
+    "fedstat_read_ids", function(..., before = function() NULL) {
+      before()
+      ids
+    },
+    mock(
+      "fedstat_post_data_ids_filtered", function(...) internal("fedstat_error")("timeout", "transient", stage),
+      mock(
+        "fedstat_backoff", function(...) 0,
+        expect_error(fedstat_download("31074",
+          filters = "*", path = path, request_pause = 0,
+          verbose = FALSE, recovery_max_times = 0
+        ), "fedstat_transient")
+      )
+    )
+  )
   stopifnot(length(readRDS(file.path(path, "manifest.rds"))$parts) == 1L)
   unlink(path, recursive = TRUE)
 }
@@ -178,17 +249,28 @@ for (stage in c("token", "metadata")) {
 # An export that is too large subdivides; persistent failures stop at the circuit limit.
 for (outage in c(FALSE, TRUE)) {
   path <- tempfile()
-  mock("fedstat_read_ids", function(..., before = function() NULL) { before(); ids },
+  mock(
+    "fedstat_read_ids", function(..., before = function() NULL) {
+      before()
+      ids
+    },
     mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
       attr(data_ids, "fedstat_session")$before()
       if (outage || nrow(fake_data(data_ids)) > 2L) internal("fedstat_error")("timeout", "transient", "export")
       serialize(fake_data(data_ids), NULL)
-    }, mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw),
+    }, mock(
+      "fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw),
       mock("fedstat_backoff", function(...) 0, {
-        run <- function() fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-                                           max_failures = 3L, verbose = FALSE, recovery_max_times = 0)
+        run <- function() {
+          fedstat_download("31074",
+            filters = "*", path = path, request_pause = 0,
+            max_failures = 3L, verbose = FALSE, recovery_max_times = 0
+          )
+        }
         if (outage) expect_error(run(), "fedstat_unavailable") else stopifnot(run()$complete)
-      }))))
+      })
+    ))
+  )
   unlink(path, recursive = TRUE)
 }
 cat("Offline regression tests passed.\n")
@@ -198,44 +280,61 @@ path <- tempfile()
 with_batch({
   first <- list(Year = c(2024, 2025), Area = c("First", "Second"))
   reordered <- list(" area " = c("SECOND", "first", "first"), YEAR = c("2025", "2024"))
-  job <- fedstat_download("31074", filters = first, path = path, max_cells = 2,
-                          request_pause = 0, verbose = FALSE, recovery_max_times = 0)
-  mock("fedstat_read_ids", function(...) stop("Unexpected network request"),
-    stopifnot(fedstat_download("31074", filters = reordered, path = path, verbose = FALSE, recovery_max_times = 0)$complete))
-  expect_error(fedstat_download("31074", filters = list(Year = 2024, Area = "First"), path = path,
-                                verbose = FALSE, recovery_max_times = 0), pattern = "different selection")
+  job <- fedstat_download("31074",
+    filters = first, path = path, max_cells = 2,
+    request_pause = 0, verbose = FALSE, recovery_max_times = 0
+  )
+  mock(
+    "fedstat_read_ids", function(...) stop("Unexpected network request"),
+    stopifnot(fedstat_download("31074", filters = reordered, path = path, verbose = FALSE, recovery_max_times = 0)$complete)
+  )
+  expect_error(fedstat_download("31074",
+    filters = list(Year = 2024, Area = "First"), path = path,
+    verbose = FALSE, recovery_max_times = 0
+  ), pattern = "different selection")
   # Old manifests are revalidated once, offline.
-  m <- readRDS(file.path(path, "manifest.rds")); m$validated <- NULL
+  m <- readRDS(file.path(path, "manifest.rds"))
+  m$validated <- NULL
   saveRDS(m, file.path(path, "manifest.rds"))
-  mock("fedstat_read_ids", function(...) stop("Unexpected network request"),
-    stopifnot(fedstat_download("31074", filters = first, path = path, verbose = FALSE, recovery_max_times = 0)$complete))
+  mock(
+    "fedstat_read_ids", function(...) stop("Unexpected network request"),
+    stopifnot(fedstat_download("31074", filters = first, path = path, verbose = FALSE, recovery_max_times = 0)$complete)
+  )
 })
 unlink(path, recursive = TRUE)
 
 # A provider ignoring filters must fail final validation, never report completion.
 path <- tempfile()
 with_batch(mock("fedstat_parse_sdmx", function(...) data.frame(Year = "2024", Area_code = "1", ObsValue = "1"), {
-  expect_error(fedstat_download("31074", filters = "*", path = path, max_cells = 2,
-                                request_pause = 0, verbose = FALSE, recovery_max_times = 0), pattern = "across parts")
+  expect_error(fedstat_download("31074",
+    filters = "*", path = path, max_cells = 2,
+    request_pause = 0, verbose = FALSE, recovery_max_times = 0
+  ), pattern = "across parts")
   m <- readRDS(file.path(path, "manifest.rds"))
   stopifnot(!isTRUE(m$validated), !internal("fedstat_download_result")(m, path)$complete)
   events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-  stopifnot(!any(vapply(events, function(e) e$event == "COMPLETE", logical(1L))),
-            tail(events, 1)[[1]]$event == "STOP", tail(events, 1)[[1]]$stage == "validation",
-            tail(events, 1)[[1]]$saved_parts == 2L)
+  stopifnot(
+    !any(vapply(events, function(e) e$event == "COMPLETE", logical(1L))),
+    tail(events, 1)[[1]]$event == "STOP", tail(events, 1)[[1]]$stage == "validation",
+    tail(events, 1)[[1]]$saved_parts == 2L
+  )
 }))
 unlink(path, recursive = TRUE)
 
 # Canonical keys distinguish delimiters, missing values and Unicode strings.
-keys <- internal("fedstat_keys")(data.frame(a = c(NA, "NA", "a|b", "a", "a\nb"),
-  b = c("", "", "c", "b|c", "")), c("a", "b"))
+keys <- internal("fedstat_keys")(data.frame(
+  a = c(NA, "NA", "a|b", "a", "a\nb"),
+  b = c("", "", "c", "b|c", "")
+), c("a", "b"))
 stopifnot(!anyDuplicated(keys))
 
 # Exercise real HTTP orchestration with a fake transport: no live service traffic.
 path <- tempfile()
 local({
   verb <- function(method, url, ..., handle) {
-    if (method == "GET") return(response(html))
+    if (method == "GET") {
+      return(response(html))
+    }
     args <- list(...)
     selected_years <- sub("1_", "", regmatches(args$body, gregexpr("1_202[45]", args$body))[[1]])
     document <- xml2::read_xml(xml)
@@ -244,19 +343,29 @@ local({
     xml2::xml_remove(obs[!years %in% selected_years])
     response(charToRaw(as.character(document)), type = "text/xml")
   }
-  mock("VERB", verb, {
-    job <- fedstat_download("31074", filters = list(Year = c("2024", "2025"), Area = "First"),
-      path = path, max_cells = 1, token_policy = "refresh", request_pause = 0, verbose = FALSE, recovery_max_times = 0)
-    stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L)
-  }, where = asNamespace("httr"))
+  mock("VERB",
+    verb,
+    {
+      job <- fedstat_download("31074",
+        filters = list(Year = c("2024", "2025"), Area = "First"),
+        path = path, max_cells = 1, token_policy = "refresh", request_pause = 0, verbose = FALSE, recovery_max_times = 0
+      )
+      stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L)
+    },
+    where = asNamespace("httr")
+  )
   lines <- readLines(file.path(path, "download.log"))
   events <- lapply(lines, jsonlite::fromJSON)
   types <- vapply(events, `[[`, "", "event")
-  stopifnot(all(c("WAIT", "REQUEST", "RESPONSE", "TOKEN_REFRESH", "SPLIT", "SAVED", "VALIDATED", "COMPLETE") %in% types),
-            !any(grepl("fixture-token|struts.token.name|Authorization|JSESSIONID", lines, fixed = FALSE)))
+  stopifnot(
+    all(c("WAIT", "REQUEST", "RESPONSE", "TOKEN_REFRESH", "SPLIT", "SAVED", "VALIDATED", "COMPLETE") %in% types),
+    !any(grepl("fixture-token|struts.token.name|Authorization|JSESSIONID", lines, fixed = FALSE))
+  )
   requests <- events[types == "REQUEST"]
-  stopifnot(identical(vapply(requests, `[[`, "", "stage"), c("metadata", "export", "token", "export")),
-            identical(vapply(requests, function(e) as.integer(e$request), integer(1L)), 1:4))
+  stopifnot(
+    identical(vapply(requests, `[[`, "", "stage"), c("metadata", "export", "token", "export")),
+    identical(vapply(requests, function(e) as.integer(e$request), integer(1L)), 1:4)
+  )
   split <- events[[which(types == "SPLIT")[1L]]]
   stopifnot(split$reason == "size_limit", split$dimension == "Year", sum(split$cardinalities) == 2L)
   # Wait messages precede the next request; the log has actual delays and timestamps.
@@ -267,20 +376,29 @@ unlink(path, recursive = TRUE)
 # Metadata errors and interruptions get a final recovery summary and release locks.
 path <- tempfile()
 mock("VERB", function(...) response("secret response body", status = 503L),
-  expect_error(fedstat_download("31074", filters = "*", path = path, retry_max_times = 1,
-    verbose = FALSE, recovery_max_times = 0), "fedstat_transient"), where = asNamespace("httr"))
+  expect_error(fedstat_download("31074",
+    filters = "*", path = path, retry_max_times = 1,
+    verbose = FALSE, recovery_max_times = 0
+  ), "fedstat_transient"),
+  where = asNamespace("httr")
+)
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-stopifnot(tail(events, 1)[[1]]$event == "STOP", tail(events, 1)[[1]]$stage == "metadata",
-          !dir.exists(file.path(path, ".lock")), !any(grepl("secret response body", readLines(file.path(path, "download.log")))))
+stopifnot(
+  tail(events, 1)[[1]]$event == "STOP", tail(events, 1)[[1]]$stage == "metadata",
+  !dir.exists(file.path(path, ".lock")), !any(grepl("secret response body", readLines(file.path(path, "download.log"))))
+)
 unlink(path, recursive = TRUE)
 path <- tempfile()
 with_batch(mock("fedstat_post_data_ids_filtered", function(...) {
   signalCondition(structure(list(message = "Cancelled", call = NULL), class = c("interrupt", "condition")))
   stop("Interrupt was not handled")
-}, stopifnot(tryCatch({
-  fedstat_download("31074", filters = "*", path = path, verbose = FALSE, recovery_max_times = 0)
-  FALSE
-}, interrupt = function(e) TRUE))))
+}, stopifnot(tryCatch(
+  {
+    fedstat_download("31074", filters = "*", path = path, verbose = FALSE, recovery_max_times = 0)
+    FALSE
+  },
+  interrupt = function(e) TRUE
+))))
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
 stopifnot(tail(events, 1)[[1]]$event == "INTERRUPTED", !dir.exists(file.path(path, ".lock")))
 unlink(path, recursive = TRUE)
@@ -291,17 +409,22 @@ path <- tempfile()
 local({
   calls <- 0L
   with_batch(mock("fedstat_read_ids", function(..., before = function() NULL) {
-    before(); calls <<- calls + 1L
+    before()
+    calls <<- calls + 1L
     if (calls <= 2L) internal("fedstat_error")("empty reply", "transient", "metadata")
     ids
   }, mock("fedstat_backoff", function(...) 0, {
-    job <- fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-      recovery_pause = 0, recovery_max_times = 1, verbose = FALSE)
+    job <- fedstat_download("31074",
+      filters = "*", path = path, request_pause = 0,
+      recovery_pause = 0, recovery_max_times = 1, verbose = FALSE
+    )
     stopifnot(job$complete, calls == 3L)
   })))
   events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-  stopifnot(sum(vapply(events, function(e) e$event == "RECOVER", logical(1L))) == 1L,
-    dir.exists(file.path(path, "parts")), !length(list.files(path, pattern = "^part-")))
+  stopifnot(
+    sum(vapply(events, function(e) e$event == "RECOVER", logical(1L))) == 1L,
+    dir.exists(file.path(path, "parts")), !length(list.files(path, pattern = "^part-"))
+  )
 })
 unlink(path, recursive = TRUE)
 
@@ -319,16 +442,22 @@ local({
     posts <<- posts + 1L
     body <- list(...)$body
     years <- sub("1_", "", regmatches(body, gregexpr("1_202[45]", body))[[1L]])
-    if (length(years) > 1L) return(response("", status = 302L))
+    if (length(years) > 1L) {
+      return(response("", status = 302L))
+    }
     data <- data.frame(Year = years, Area_code = "1", ObsValue = "1")
     response(serialize(data, NULL), type = "application/octet-stream")
   }
-  mock("VERB", verb, mock("fedstat_backoff", function(...) 0,
+  mock("VERB", verb, mock(
+    "fedstat_backoff", function(...) 0,
     mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw), {
-      job <- fedstat_download("31074", filters = list(Year = "*", Area = "First"), path = path,
-        request_pause = 0, recovery_pause = 0, max_requests = 10, verbose = FALSE)
+      job <- fedstat_download("31074",
+        filters = list(Year = "*", Area = "First"), path = path,
+        request_pause = 0, recovery_pause = 0, max_requests = 10, verbose = FALSE
+      )
       stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L, posts == 4L, gets == 4L)
-    })), where = asNamespace("httr"))
+    })
+  ), where = asNamespace("httr"))
   events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
   stopifnot(any(vapply(events, function(e) identical(e$reason, "rejected_after_refresh"), logical(1L))))
 })
@@ -339,11 +468,14 @@ path <- tempfile()
 local({
   calls <- 0L
   with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
-    attr(data_ids, "fedstat_session")$before(); calls <<- calls + 1L
+    attr(data_ids, "fedstat_session")$before()
+    calls <<- calls + 1L
     internal("fedstat_error")("redirect", "redirect", "export", 302L)
   }, mock("fedstat_backoff", function(...) 0, {
-    expect_error(fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-      recovery_pause = 0, recovery_max_times = 1, max_failures = 3, verbose = FALSE), "fedstat_unavailable")
+    expect_error(fedstat_download("31074",
+      filters = "*", path = path, request_pause = 0,
+      recovery_pause = 0, recovery_max_times = 1, max_failures = 3, verbose = FALSE
+    ), "fedstat_unavailable")
     stopifnot(calls == 6L)
   })))
   events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
@@ -356,29 +488,42 @@ path <- tempfile()
 with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
   attr(data_ids, "fedstat_session")$before()
   internal("fedstat_error")("empty reply", "transient", "token")
-}, mock("fedstat_backoff", function(...) 0,
-  expect_error(fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-    recovery_pause = 0, max_requests = 2, verbose = FALSE), "fedstat_budget"))))
+}, mock(
+  "fedstat_backoff", function(...) 0,
+  expect_error(fedstat_download("31074",
+    filters = "*", path = path, request_pause = 0,
+    recovery_pause = 0, max_requests = 2, verbose = FALSE
+  ), "fedstat_budget")
+)))
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-stopifnot(tail(events, 1L)[[1L]]$request == 2L,
-          !any(vapply(events, function(e) e$event == "RECOVER", logical(1L))))
+stopifnot(
+  tail(events, 1L)[[1L]]$request == 2L,
+  !any(vapply(events, function(e) e$event == "RECOVER", logical(1L)))
+)
 unlink(path, recursive = TRUE)
 
 # Existing flat-layout checkpoints resume without moving or refetching saved data.
 path <- tempfile()
 with_batch({
-  expect_error(fedstat_download("31074", filters = "*", path = path, max_cells = 2,
-    request_pause = 0, max_requests = 2, verbose = FALSE), "fedstat_budget")
-  m <- readRDS(file.path(path, "manifest.rds")); m$parts_dir <- NULL
-  for (i in seq_along(m$parts)) if (m$parts[[i]]$status == "complete") {
-    file <- m$parts[[i]]$file
-    stopifnot(file.rename(file.path(path, file), file.path(path, basename(file))))
-    m$parts[[i]]$file <- basename(file)
+  expect_error(fedstat_download("31074",
+    filters = "*", path = path, max_cells = 2,
+    request_pause = 0, max_requests = 2, verbose = FALSE
+  ), "fedstat_budget")
+  m <- readRDS(file.path(path, "manifest.rds"))
+  m$parts_dir <- NULL
+  for (i in seq_along(m$parts)) {
+    if (m$parts[[i]]$status == "complete") {
+      file <- m$parts[[i]]$file
+      stopifnot(file.rename(file.path(path, file), file.path(path, basename(file))))
+      m$parts[[i]]$file <- basename(file)
+    }
   }
   saveRDS(m, file.path(path, "manifest.rds"))
   unlink(file.path(path, "parts"), recursive = TRUE)
-  job <- fedstat_download("31074", filters = "*", path = path, max_requests = 2,
-    request_pause = 0, verbose = FALSE)
+  job <- fedstat_download("31074",
+    filters = "*", path = path, max_requests = 2,
+    request_pause = 0, verbose = FALSE
+  )
   stopifnot(job$complete, !dir.exists(file.path(path, "parts")), nrow(fedstat_collect(job)) == 4L)
 })
 unlink(path, recursive = TRUE)
@@ -388,35 +533,57 @@ path <- tempfile()
 with_batch(mock("fedstat_parse_sdmx", function(data_raw, ...) {
   warning("fixture parser warning", call. = FALSE)
   unserialize(data_raw)
-}, suppressWarnings(fedstat_download("31074", filters = "*", path = path,
-                                     request_pause = 0, verbose = FALSE))))
+}, suppressWarnings(fedstat_download("31074",
+  filters = "*", path = path,
+  request_pause = 0, verbose = FALSE
+))))
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
 warnings <- Filter(function(e) e$event == "WARNING", events)
-stopifnot(length(warnings) == 1L, warnings[[1L]]$stage == "parse",
-          warnings[[1L]]$message == "fixture parser warning", warnings[[1L]]$part == "1")
+stopifnot(
+  length(warnings) == 1L, warnings[[1L]]$stage == "parse",
+  warnings[[1L]]$message == "fixture parser warning", warnings[[1L]]$part == "1"
+)
 unlink(path, recursive = TRUE)
 cat("Recovery and storage compatibility regression tests passed.\n")
 
 # Throttling waits for Retry-After without subdivision; access refusals do not recover.
-for (status in c(429L, 403L)) local({
-  path <- tempfile(); on.exit(unlink(path, recursive = TRUE))
-  posts <- 0L; waits <- numeric()
-  with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
-    attr(data_ids, "fedstat_session")$before(); posts <<- posts + 1L
-    if (status == 403L || posts == 1L) internal("fedstat_error")("service response",
-      if (status == 429L) "rate_limit" else "blocked", "export", status, 120)
-    serialize(fake_data(data_ids), NULL)
-  }, mock("Sys.sleep", function(time) { waits <<- c(waits, time) }, {
-    run <- function() fedstat_download("31074", filters = "*", path = path,
-      request_pause = 0, recovery_pause = 0, verbose = FALSE)
-    if (status == 403L) {
-      expect_error(run(), "fedstat_blocked"); stopifnot(posts == 1L)
-    } else {
-      stopifnot(run()$complete, posts == 2L, max(waits) >= 120)
-    }
-  }, where = baseenv())))
-  stopifnot(length(readRDS(file.path(path, "manifest.rds"))$parts) == 1L)
-})
+for (status in c(429L, 403L)) {
+  local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    posts <- 0L
+    waits <- numeric()
+    with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
+      attr(data_ids, "fedstat_session")$before()
+      posts <<- posts + 1L
+      if (status == 403L || posts == 1L) {
+        internal("fedstat_error")("service response",
+          if (status == 429L) "rate_limit" else "blocked", "export", status, 120)
+      }
+      serialize(fake_data(data_ids), NULL)
+    }, mock("Sys.sleep",
+      function(time) {
+        waits <<- c(waits, time)
+      },
+      {
+        run <- function() {
+          fedstat_download("31074",
+            filters = "*", path = path,
+            request_pause = 0, recovery_pause = 0, verbose = FALSE
+          )
+        }
+        if (status == 403L) {
+          expect_error(run(), "fedstat_blocked")
+          stopifnot(posts == 1L)
+        } else {
+          stopifnot(run()$complete, posts == 2L, max(waits) >= 120)
+        }
+      },
+      where = baseenv()
+    )))
+    stopifnot(length(readRDS(file.path(path, "manifest.rds"))$parts) == 1L)
+  })
+}
 cat("Rate limit and access refusal regression tests passed.\n")
 
 # Exhausting the budget at the failure limit must not announce a cooldown it cannot run.
@@ -424,9 +591,13 @@ path <- tempfile()
 with_batch(mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
   attr(data_ids, "fedstat_session")$before()
   internal("fedstat_error")("redirect", "redirect", "export", 302L)
-}, mock("fedstat_backoff", function(...) 0,
-  expect_error(fedstat_download("31074", filters = "*", path = path, request_pause = 0,
-    recovery_pause = 0, max_requests = 2, max_failures = 1, verbose = FALSE), "fedstat_budget"))))
+}, mock(
+  "fedstat_backoff", function(...) 0,
+  expect_error(fedstat_download("31074",
+    filters = "*", path = path, request_pause = 0,
+    recovery_pause = 0, max_requests = 2, max_failures = 1, verbose = FALSE
+  ), "fedstat_budget")
+)))
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
 stopifnot(!any(vapply(events, function(e) e$event == "RECOVER", logical(1L))))
 unlink(path, recursive = TRUE)

@@ -25,15 +25,20 @@ baseline <- fedstat_parse_sdmx_to_table(bytes, try_to_parse_ObsValue = FALSE)
 stopifnot(nrow(baseline) > 0L)
 cat("Unsplit export:", nrow(baseline), "rows,", length(bytes), "bytes\n")
 Sys.sleep(30)
-reused <- tryCatch({
-  again <- fedstat_post_data_ids_filtered(selected, config, timeout_seconds = 90, retry_max_times = 1)
-  identical(baseline, fedstat_parse_sdmx_to_table(again, try_to_parse_ObsValue = FALSE))
-}, error = function(e) paste(class(e)[1L], conditionMessage(e)))
+reused <- tryCatch(
+  {
+    again <- fedstat_post_data_ids_filtered(selected, config, timeout_seconds = 90, retry_max_times = 1)
+    identical(baseline, fedstat_parse_sdmx_to_table(again, try_to_parse_ObsValue = FALSE))
+  },
+  error = function(e) paste(class(e)[1L], conditionMessage(e))
+)
 cat("Same-session token reuse:", reused, "\n")
 Sys.sleep(30)
-job <- fedstat_download("37089", config, filters = filters, path = file.path(out, "parts"),
-                        max_cells = 1, max_requests = 7, request_pause = 30,
-                        timeout_seconds = 90, retry_max_times = 2)
+job <- fedstat_download("37089", config,
+  filters = filters, path = file.path(out, "parts"),
+  max_cells = 1, max_requests = 7, request_pause = 30,
+  timeout_seconds = 90, retry_max_times = 2
+)
 combined <- fedstat_collect(job)
 canonical <- function(x) {
   x <- x[sort(names(x))]
@@ -45,5 +50,7 @@ stopifnot(identical(canonical(baseline), canonical(combined)))
 # A completed resume must not need the network.
 resumed <- fedstat_download("37089", filters = filters, path = job$path, max_requests = 1)
 stopifnot(resumed$complete)
-cat("PASS: split == unsplit; completed resume verified. Elapsed minutes:",
-    round(as.numeric(difftime(Sys.time(), started, units = "mins")), 2), "\n")
+cat(
+  "PASS: split == unsplit; completed resume verified. Elapsed minutes:",
+  round(as.numeric(difftime(Sys.time(), started, units = "mins")), 2), "\n"
+)
