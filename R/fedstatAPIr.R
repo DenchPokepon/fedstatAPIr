@@ -4,5 +4,5 @@
 "_PACKAGE"
 
 globalVariables(c(
-  "."
+    "."
 ))

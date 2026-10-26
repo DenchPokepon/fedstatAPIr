@@ -71,101 +71,101 @@ fedstat_get_data_ids <- function(indicator_id,
                                  timeout_seconds = 180,
                                  retry_max_times = 3,
                                  httr_verbose = NULL) {
-  fedstat_read_ids(indicator_id, ...,
-    timeout_seconds = timeout_seconds,
-    retry_max_times = retry_max_times, httr_verbose = httr_verbose
-  )
+    fedstat_read_ids(indicator_id, ...,
+        timeout_seconds = timeout_seconds,
+        retry_max_times = retry_max_times, httr_verbose = httr_verbose
+    )
 }
 
 fedstat_read_ids <- function(indicator_id, ..., timeout_seconds = 180,
                              retry_max_times = 3, httr_verbose = NULL,
                              before = function() NULL) {
-  if (length(indicator_id) != 1L || is.na(indicator_id) ||
-    !grepl("^[0-9]+$", as.character(indicator_id))) {
-    stop("indicator_id must be a single numeric indicator code.", call. = FALSE)
-  }
-  base_url <- "https://www.fedstat.ru"
-  handle <- httr::handle(base_url)
-  response <- fedstat_request("GET", paste0(base_url, "/indicator/", indicator_id),
-    httr_verbose, ...,
-    handle = handle, timeout_seconds = timeout_seconds,
-    attempts = retry_max_times, stage = "metadata", before = before
-  )
-  html <- xml2::read_html(response$content, encoding = "UTF-8")
-  result <- tryCatch(fedstat_metadata(html), error = function(e) {
-    fedstat_error(paste0(
-      "Cannot read indicator filters: ", conditionMessage(e),
-      " The page may be unavailable or have changed."
-    ), "metadata", "metadata")
-  })
-  session <- tryCatch(fedstat_token(html, indicator_id, handle, base_url),
-    fedstat_metadata = function(e) {
-      warning(conditionMessage(e), " A fresh token will be requested on download.", call. = FALSE)
-      state <- new.env(parent = emptyenv())
-      state$indicator_id <- as.character(indicator_id)
-      state$base_url <- base_url
-      state$handle <- handle
-      state$used <- FALSE
-      state
+    if (length(indicator_id) != 1L || is.na(indicator_id) ||
+        !grepl("^[0-9]+$", as.character(indicator_id))) {
+        stop("indicator_id must be a single numeric indicator code.", call. = FALSE)
     }
-  )
-  fedstat_attach_session(result, session)
+    base_url <- "https://www.fedstat.ru"
+    handle <- httr::handle(base_url)
+    response <- fedstat_request("GET", paste0(base_url, "/indicator/", indicator_id),
+        httr_verbose, ...,
+        handle = handle, timeout_seconds = timeout_seconds,
+        attempts = retry_max_times, stage = "metadata", before = before
+    )
+    html <- xml2::read_html(response$content, encoding = "UTF-8")
+    result <- tryCatch(fedstat_metadata(html), error = function(e) {
+        fedstat_error(paste0(
+            "Cannot read indicator filters: ", conditionMessage(e),
+            " The page may be unavailable or have changed."
+        ), "metadata", "metadata")
+    })
+    session <- tryCatch(fedstat_token(html, indicator_id, handle, base_url),
+        fedstat_metadata = function(e) {
+            warning(conditionMessage(e), " A fresh token will be requested on download.", call. = FALSE)
+            state <- new.env(parent = emptyenv())
+            state$indicator_id <- as.character(indicator_id)
+            state$base_url <- base_url
+            state$handle <- handle
+            state$used <- FALSE
+            state
+        }
+    )
+    fedstat_attach_session(result, session)
 }
 
 fedstat_metadata <- function(html) {
-  filter_value_title <- filter_field_object_ids <- NULL
-  scripts <- xml2::xml_text(xml2::xml_find_all(html, ".//script"))
-  candidates <- scripts[grepl("filters\\s*:", scripts) & grepl("left_columns\\s*:", scripts)]
-  if (length(candidates) != 1L) stop("Expected one script containing filter definitions.")
-  js_script <- strsplit(candidates, "\n", fixed = TRUE)[[1L]]
-  filter_list <- parse_js1(js_script)
-  object_list <- parse_js2(js_script) %>% unlist()
+    filter_value_title <- filter_field_object_ids <- NULL
+    scripts <- xml2::xml_text(xml2::xml_find_all(html, ".//script"))
+    candidates <- scripts[grepl("filters\\s*:", scripts) & grepl("left_columns\\s*:", scripts)]
+    if (length(candidates) != 1L) stop("Expected one script containing filter definitions.")
+    js_script <- strsplit(candidates, "\n", fixed = TRUE)[[1L]]
+    filter_list <- parse_js1(js_script)
+    object_list <- parse_js2(js_script) %>% unlist()
 
-  if (all(object_list != "0")) {
-    object_list[["filterObjectIds"]] <- "0"
-  } # Add special filterObjectIds (indicator id)
+    if (all(object_list != "0")) {
+        object_list[["filterObjectIds"]] <- "0"
+    } # Add special filterObjectIds (indicator id)
 
-  object_df <- data.table::data.table(
-    filter_field_id = unname(object_list),
-    filter_field_object_ids = names(object_list) %>% gsub(x = ., "\\d", ""),
-    stringsAsFactors = FALSE
-  ) %>%
-    unique(by = "filter_field_id")
+    object_df <- data.table::data.table(
+        filter_field_id = unname(object_list),
+        filter_field_object_ids = names(object_list) %>% gsub(x = ., "\\d", ""),
+        stringsAsFactors = FALSE
+    ) %>%
+        unique(by = "filter_field_id")
 
-  filter_id_list <- lapply(filter_list, function(x) {
-    filter_values <- x[["values"]]
+    filter_id_list <- lapply(filter_list, function(x) {
+        filter_values <- x[["values"]]
 
-    if (!length(names(filter_values))) {
-      stop(
-        "fedstat returned erroneous data_ids. It's probably lagging. There are no filter values in the \"",
-        x[["title"]], "\" filter "
-      )
+        if (!length(names(filter_values))) {
+            stop(
+                "fedstat returned erroneous data_ids. It's probably lagging. There are no filter values in the \"",
+                x[["title"]], "\" filter "
+            )
+        }
+
+        data.frame(
+            filter_field_title = x[["title"]],
+            filter_value_id = names(filter_values),
+            filter_value_title = unlist(lapply(filter_values, function(x) x[["title"]])),
+            stringsAsFactors = FALSE, row.names = NULL
+        )
+    })
+
+    filter_dt <- data.table::rbindlist(filter_id_list, idcol = "filter_field_id", use.names = TRUE)[
+        , filter_value_title := gsub("&quot;", "\"", x = filter_value_title)
+    ] %>%
+        data.table::merge.data.table(object_df, by = "filter_field_id", all.x = TRUE)
+
+
+    if (anyDuplicated(filter_dt[, c("filter_field_id", "filter_value_id")])) {
+        stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")
     }
 
-    data.frame(
-      filter_field_title = x[["title"]],
-      filter_value_id = names(filter_values),
-      filter_value_title = unlist(lapply(filter_values, function(x) x[["title"]])),
-      stringsAsFactors = FALSE, row.names = NULL
-    )
-  })
+    result <- filter_dt[, filter_field_object_ids := data.table::fifelse(
+        is.na(filter_field_object_ids),
+        "lineObjectIds",
+        filter_field_object_ids
+    )][] %>%
+        as.data.frame()
 
-  filter_dt <- data.table::rbindlist(filter_id_list, idcol = "filter_field_id", use.names = TRUE)[
-    , filter_value_title := gsub("&quot;", "\"", x = filter_value_title)
-  ] %>%
-    data.table::merge.data.table(object_df, by = "filter_field_id", all.x = TRUE)
-
-
-  if (anyDuplicated(filter_dt[, c("filter_field_id", "filter_value_id")])) {
-    stop("data_ids table with non unique filter_field_id and filter_value_ids pairs")
-  }
-
-  result <- filter_dt[, filter_field_object_ids := data.table::fifelse(
-    is.na(filter_field_object_ids),
-    "lineObjectIds",
-    filter_field_object_ids
-  )][] %>%
-    as.data.frame()
-
-  result
+    result
 }

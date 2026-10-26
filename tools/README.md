@@ -30,13 +30,13 @@ interruptions and cleanup safety. Native RStudio/Windows UI checks remain manual
 
 ## Formatting
 
-Use [styler](https://styler.r-lib.org/) with its default tidyverse style:
+Use [styler](https://styler.r-lib.org/) with the tidyverse style and four-space indentation:
 
 ```r
 # Development tool only; not a package dependency.
 install.packages("styler")
-styler::style_pkg()
-styler::style_dir("tools")
+styler::style_pkg(indent_by = 4)
+styler::style_dir("tools", indent_by = 4)
 ```
 
 ## Cancellation on Windows

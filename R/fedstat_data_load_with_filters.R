@@ -59,13 +59,13 @@
 #' # Download CPI data
 #' # for all goods and services for Russian Federation
 #' data <- fedstat_data_load_with_filters(
-#'   indicator_id = "31074",
-#'   filters = list(
-#'     "Territory" = "Russian Federation",
-#'     "Year" = "2023",
-#'     "Period" = "January",
-#'     "Types of goods and services" = "*"
-#'   )
+#'     indicator_id = "31074",
+#'     filters = list(
+#'         "Territory" = "Russian Federation",
+#'         "Year" = "2023",
+#'         "Period" = "January",
+#'         "Types of goods and services" = "*"
+#'     )
 #' )
 #' # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 #' }
@@ -79,48 +79,48 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            loading_steps_verbose = TRUE,
                                            return_type = c("data", "dictionary"),
                                            try_to_parse_ObsValue = TRUE) {
-  fedstat_positive(retry_max_times, "retry_max_times", integer = TRUE)
-  data_ids <- NULL
-  refreshed <- FALSE
-  for (attempt in seq_len(retry_max_times)) {
-    result <- tryCatch(
-      {
-        if (is.null(data_ids)) {
-          if (loading_steps_verbose) message("Loading indicator ", indicator_id, " filters ...")
-          ids <- fedstat_get_data_ids(indicator_id, ...,
-            timeout_seconds = timeout_seconds,
-            retry_max_times = 1L, httr_verbose = httr_verbose
-          )
-          data_ids <- fedstat_data_ids_filter(ids, filters, disable_warnings)
-        }
-        if (loading_steps_verbose) message("Downloading indicator ", indicator_id, " ...")
-        bytes <- fedstat_post_data_ids_filtered(data_ids, ...,
-          timeout_seconds = timeout_seconds,
-          retry_max_times = 1L, httr_verbose = httr_verbose
+    fedstat_positive(retry_max_times, "retry_max_times", integer = TRUE)
+    data_ids <- NULL
+    refreshed <- FALSE
+    for (attempt in seq_len(retry_max_times)) {
+        result <- tryCatch(
+            {
+                if (is.null(data_ids)) {
+                    if (loading_steps_verbose) message("Loading indicator ", indicator_id, " filters ...")
+                    ids <- fedstat_get_data_ids(indicator_id, ...,
+                        timeout_seconds = timeout_seconds,
+                        retry_max_times = 1L, httr_verbose = httr_verbose
+                    )
+                    data_ids <- fedstat_data_ids_filter(ids, filters, disable_warnings)
+                }
+                if (loading_steps_verbose) message("Downloading indicator ", indicator_id, " ...")
+                bytes <- fedstat_post_data_ids_filtered(data_ids, ...,
+                    timeout_seconds = timeout_seconds,
+                    retry_max_times = 1L, httr_verbose = httr_verbose
+                )
+                fedstat_parse_sdmx_to_table(bytes, return_type, try_to_parse_ObsValue)
+            },
+            error = identity
         )
-        fedstat_parse_sdmx_to_table(bytes, return_type, try_to_parse_ObsValue)
-      },
-      error = identity
-    )
-    if (!inherits(result, "error")) {
-      if (loading_steps_verbose) message("Done")
-      return(result)
+        if (!inherits(result, "error")) {
+            if (loading_steps_verbose) message("Done")
+            return(result)
+        }
+        token <- inherits(result, "fedstat_token") || inherits(result, "fedstat_redirect")
+        if (attempt == retry_max_times || (!fedstat_retryable(result) && !(token && !refreshed))) stop(result)
+        if (!is.null(data_ids)) {
+            # Invalidate session state, keep the already resolved filter selection.
+            session <- fedstat_session(data_ids)
+            session$token <- NULL
+            data_ids <- fedstat_attach_session(data_ids, session)
+        }
+        if (token) refreshed <- TRUE
+        if (loading_steps_verbose) {
+            message(
+                conditionMessage(result), " Retrying (", attempt + 1L,
+                "/", retry_max_times, ") ..."
+            )
+        }
+        Sys.sleep(fedstat_backoff(attempt, result))
     }
-    token <- inherits(result, "fedstat_token") || inherits(result, "fedstat_redirect")
-    if (attempt == retry_max_times || (!fedstat_retryable(result) && !(token && !refreshed))) stop(result)
-    if (!is.null(data_ids)) {
-      # Invalidate session state, keep the already resolved filter selection.
-      session <- fedstat_session(data_ids)
-      session$token <- NULL
-      data_ids <- fedstat_attach_session(data_ids, session)
-    }
-    if (token) refreshed <- TRUE
-    if (loading_steps_verbose) {
-      message(
-        conditionMessage(result), " Retrying (", attempt + 1L,
-        "/", retry_max_times, ") ..."
-      )
-    }
-    Sys.sleep(fedstat_backoff(attempt, result))
-  }
 }
