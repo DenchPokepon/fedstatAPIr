@@ -21,7 +21,8 @@ fedstat_download(
   recovery_max_times = 3L,
   recovery_pause = 60,
   time_limit_seconds = 3600,
-  access_pause = 300
+  access_pause = 300,
+  prepare_grid = FALSE
 )
 }
 \arguments{
@@ -48,8 +49,9 @@ a fresh token before each subsequent export. Metadata is reused either way.}
 
 \item{timeout_seconds}{Maximum duration of each HTTP request, including transfer.}
 
-\item{retry_max_times}{Maximum export attempts per part before subdivision or
-cooldown, including the first. Metadata and token GETs have their own attempts;
+\item{retry_max_times}{Maximum data attempts per part before subdivision or
+cooldown, including the first. With \code{prepare_grid = TRUE}, each attempt
+prepares the preview before exporting. Metadata and token GETs have their own attempts;
 all attempts share the invocation's time allowance.}
 
 \item{request_pause}{Seconds to wait between HTTP requests: a number or a
@@ -58,7 +60,7 @@ two-number range for random pauses. Retry delays and Retry-After can extend it.}
 \item{max_depth}{Maximum binary subdivisions from the original selection.}
 
 \item{max_failures}{Pause recovery after this many consecutive transient or
-ambiguous export failures; this limits subdivision during an outage.}
+ambiguous export/preview failures; this limits subdivision during an outage.}
 
 \item{verbose}{Console detail: \code{TRUE} or \code{"progress"} for short updates (default),
 \code{FALSE} or \code{"quiet"} to hide updates, \code{"detailed"} for diagnostic events.
@@ -83,6 +85,12 @@ safely before stopping, so these operations can extend the elapsed time.}
 \item{access_pause}{Seconds to wait after a suspected access check or refusal;
 defaults to 300 (five minutes). Repeated refusals double this pause and share
 \code{recovery_max_times} and the overall time allowance. No challenge is bypassed.}
+
+\item{prepare_grid}{If \code{TRUE}, submit each part's filters to Fedstat's browser
+preview (\code{dataGrid.do}) before each export attempt, using the same session.
+Default \code{FALSE}: this adds an HTTP request and server work per attempt.
+Preview data are discarded; only validated SDMX is saved. Both requests
+share pacing, timeout configuration and the invocation's time allowance.}
 }
 \value{
 A \code{fedstat_download} result with directory, completion status and part

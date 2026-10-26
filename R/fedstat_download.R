@@ -22,15 +22,21 @@
 #'   safely before stopping, so these operations can extend the elapsed time.
 #' @param token_policy `"reuse"` reuses a token until rejection; `"refresh"` gets
 #'   a fresh token before each subsequent export. Metadata is reused either way.
+#' @param prepare_grid If `TRUE`, submit each part's filters to Fedstat's browser
+#'   preview (`dataGrid.do`) before each export attempt, using the same session.
+#'   Default `FALSE`: this adds an HTTP request and server work per attempt.
+#'   Preview data are discarded; only validated SDMX is saved. Both requests
+#'   share pacing, timeout configuration and the invocation's time allowance.
 #' @param timeout_seconds Maximum duration of each HTTP request, including transfer.
-#' @param retry_max_times Maximum export attempts per part before subdivision or
-#'   cooldown, including the first. Metadata and token GETs have their own attempts;
+#' @param retry_max_times Maximum data attempts per part before subdivision or
+#'   cooldown, including the first. With `prepare_grid = TRUE`, each attempt
+#'   prepares the preview before exporting. Metadata and token GETs have their own attempts;
 #'   all attempts share the invocation's time allowance.
 #' @param request_pause Seconds to wait between HTTP requests: a number or a
 #'   two-number range for random pauses. Retry delays and Retry-After can extend it.
 #' @param max_depth Maximum binary subdivisions from the original selection.
 #' @param max_failures Pause recovery after this many consecutive transient or
-#'   ambiguous export failures; this limits subdivision during an outage.
+#'   ambiguous export/preview failures; this limits subdivision during an outage.
 #' @param verbose Console detail: `TRUE` or `"progress"` for short updates (default),
 #'   `FALSE` or `"quiet"` to hide updates, `"detailed"` for diagnostic events.
 #'   R warnings and errors remain visible in every mode.
@@ -84,9 +90,13 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                              max_depth = 20L, max_failures = 6L, verbose = TRUE,
                              log_file = file.path(path, "download.log"),
                              recovery_max_times = 3L, recovery_pause = 60,
-                             time_limit_seconds = 3600, access_pause = 300) {
+                             time_limit_seconds = 3600, access_pause = 300,
+                             prepare_grid = FALSE) {
     obsolete <- intersect(names(match.call(expand.dots = FALSE)$...), c("max_cells", "max_combinations"))
     if (length(obsolete)) stop("Use max_nominal_cells_request instead of ", paste(obsolete, collapse = ", "), ".", call. = FALSE)
+    if (!is.logical(prepare_grid) || length(prepare_grid) != 1L || is.na(prepare_grid)) {
+        stop("prepare_grid must be TRUE or FALSE.", call. = FALSE)
+    }
     started <- fedstat_elapsed()
     token_policy <- match.arg(token_policy)
     verbose <- fedstat_verbosity(verbose)
@@ -135,13 +145,14 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
     requests <- 0L
     current_part <- current_attempt <- NULL
     phase <- "startup"
+    progress_cache <- new.env(parent = emptyenv())
     report <- fedstat_logger(log_file, indicator_id, verbose, function() {
         c(list(
             request = requests, part = current_part,
             time_limit_seconds = time_limit_seconds,
             remaining_seconds = max(0, time_limit_seconds - (fedstat_elapsed() - started)),
             attempt = current_attempt, stage = phase
-        ), fedstat_progress(manifest))
+        ), fedstat_progress(manifest, progress_cache))
     })
     on.exit(attr(report, "close")(), add = TRUE)
     stopped <- function(e, event) {
@@ -192,6 +203,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
             package_version = as.character(utils::packageVersion("fedstatAPIr")),
             r_version = as.character(getRversion()), platform = R.version$platform,
             max_nominal_cells_request = max_nominal_cells_request, token_policy = token_policy, timeout_seconds = timeout_seconds,
+            prepare_grid = prepare_grid,
             request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
             max_failures = max_failures, log_file = log_file,
             recovery_max_times = recovery_max_times, recovery_pause = recovery_pause, access_pause = access_pause
@@ -238,7 +250,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                 time_left()
                 access <- inherits(error, "fedstat_blocked")
                 possible <- access || fedstat_retryable(error) || inherits(error, "fedstat_unavailable") ||
-                    (identical(error$stage, "export") && any(vapply(
+                    (isTRUE(error$stage %in% c("export", "grid")) && any(vapply(
                         c("fedstat_redirect", "fedstat_token", "fedstat_unexpected_response"),
                         function(cl) inherits(error, cl), logical(1L)
                     )))
@@ -310,6 +322,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
             }
             session <- fedstat_session(metadata)
             session$before <- gate
+            session$prepare_grid <- prepare_grid
             phase <- "selection"
             if (is.null(manifest)) {
                 selection <- fedstat_download_selection(metadata, filters)
@@ -414,11 +427,11 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                         error = identity
                     )
                     if (!inherits(result, "error")) break
-                    # Ambiguous export rejections can justify a smaller probe only after a
+                    # Ambiguous preview/export rejections can justify a smaller probe only after a
                     # session repair. GETs, explicit CSRF refusals and rate limits cannot split.
-                    token <- identical(result$stage, "export") && (inherits(result, "fedstat_token") ||
+                    token <- isTRUE(result$stage %in% c("export", "grid")) && (inherits(result, "fedstat_token") ||
                         inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
-                    transfer <- inherits(result, "fedstat_transient") && identical(result$stage, "export")
+                    transfer <- inherits(result, "fedstat_transient") && isTRUE(result$stage %in% c("export", "grid"))
                     if (transfer || token) failures <- failures + 1L
                     report("PART_ERROR", conditionMessage(result),
                         error_class = class(result)[1L],
@@ -426,7 +439,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                     )
                     if (failures >= max_failures) {
                         result <- tryCatch(fedstat_error(
-                            "Consecutive export failure limit reached; pausing to avoid overloading Fedstat.",
+                            "Repeated data requests failed without progress. Saved parts are safe; try again later or inspect download.log.",
                             "unavailable", "export"
                         ), error = identity)
                         break
@@ -436,13 +449,22 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                     if (token || transfer) session$token <- NULL
                     if (token) repaired <- TRUE
                     delay <- fedstat_backoff(attempt, result)
-                    report("RETRY", "Retry scheduled; saved parts are retained.", reason = class(result)[1L])
+                    report("RETRY", "Retry scheduled; saved parts are retained.",
+                        stage = if (is.null(result$stage)) phase else result$stage, reason = class(result)[1L]
+                    )
                 }
                 if (inherits(result, "error")) {
-                    rejected <- repaired && identical(result$stage, "export") &&
+                    if (repaired && identical(result$evidence, "empty_preview")) {
+                        fedstat_error(
+                            "Fedstat reports no observations in the preview, but still refuses the SDMX export after session renewal. This part remains unfinished; further splitting would not confirm completeness. Check the selection on the website before resuming.",
+                            "empty_export", "export", result$status,
+                            evidence = "empty_preview"
+                        )
+                    }
+                    rejected <- repaired && isTRUE(result$stage %in% c("export", "grid")) &&
                         (inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
                     splittable <- rejected || inherits(result, "fedstat_truncated") ||
-                        (inherits(result, "fedstat_transient") && identical(result$stage, "export"))
+                        (inherits(result, "fedstat_transient") && isTRUE(result$stage %in% c("export", "grid")))
                     if (splittable) {
                         delay <- fedstat_backoff(retry_max_times, result)
                         session$token <- NULL

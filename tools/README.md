@@ -5,7 +5,7 @@ small fixtures, without a test framework or live Fedstat traffic.
 
 ```sh
 R CMD build .
-R CMD check --as-cran fedstatAPIr_1.1.0.9006.tar.gz
+R CMD check --as-cran fedstatAPIr_1.1.0.9007.tar.gz
 ```
 
 For a quicker iteration after installing the source:
@@ -85,13 +85,15 @@ Rscript tools/prices.R ../fedstat-price-check
 
 Defaults: indicator 31074, January 2024, all territories, goods and indicator
 types. Optional positional arguments are output directory, year and period label.
-This is one month, not the entire historical dataset. The script requires version
-1.1.0.9006 or later, prints warnings immediately and saves session information.
+This is one month, not the entire historical dataset. The script enables `prepare_grid = TRUE` to apply each part's filters to the website
+preview before SDMX export; set it to `FALSE` to compare direct exports.
+The script requires version
+1.1.0.9007 or later, prints warnings immediately and saves session information.
 
 The default allowance is one hour per invocation, including requests, pauses and
 retries. There is no HTTP-count ceiling. `max_nominal_cells_request` controls partition
-size; raising it does not merge existing checkpoint partitions. Startup output
-shows the active size and time allowance.
+size; raising it does not merge existing checkpoint partitions. The diagnostic log records the active size and time allowance. Console percentages
+measure completed nominal filter combinations, not elapsed time or observed rows.
 
 Requests have 30–60 second pauses, a 300-second timeout (shortened to remaining
 run time), a 20-second connection timeout and a 90-second low-speed limit.
@@ -104,7 +106,7 @@ selection while reusing its folder.
 Send `download.log` and `session-info.txt` from the output folder for diagnosis.
 Both append across runs. `download.log` is UTF-8 JSON Lines, with run IDs, UTC
 timestamps, request counts, saved/pending parts, HTTP stages, response sizes/times,
-waits, token refreshes, split reasons, warnings and recovery/stop summaries. Headers,
+nominal completion percentage, preview preparation, waits, token refreshes, split reasons, warnings and recovery/stop summaries. Headers,
 cookies, token values and response bodies are excluded. For checkpoint issues,
 `manifest.rds` may help; data shards are not needed initially.
 

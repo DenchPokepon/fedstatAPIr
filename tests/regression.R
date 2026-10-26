@@ -1032,3 +1032,209 @@ local({
         )
     })
 })
+
+# Progress counts disjoint Cartesian regions, so extra splitting and resume do not reset it.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    with_batch({
+        expire_after_part(expect_error(fedstat_download("31074",
+            filters = "*", path = path, max_nominal_cells_request = 2,
+            request_pause = 0, verbose = FALSE
+        ), "fedstat_time_limit"))
+        m <- readRDS(file.path(path, "manifest.rds"))
+        cache <- new.env(parent = emptyenv())
+        expected <- internal("fedstat_progress")(m)
+        stopifnot(
+            expected$percent_selected == 50,
+            identical(internal("fedstat_progress")(m, cache), expected), length(ls(cache)) == 1L,
+            identical(internal("fedstat_progress")(m, cache), expected)
+        )
+        fedstat_download("31074", filters = "*", path = path, request_pause = 0, verbose = FALSE)
+        events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+        saved <- Filter(function(e) e$event %in% c("SAVED", "RESUME", "COMPLETE"), events)
+        stopifnot(identical(vapply(saved, `[[`, 0, "percent_selected"), c(50, 50, 100, 100)))
+    })
+    console <- internal("fedstat_console")
+    for (stage in c("metadata", "token", "grid", "export")) {
+        line <- console(list(event = "RETRY", stage = stage, saved_parts = 1L))
+        stopifnot(grepl(switch(stage,
+            metadata = "filters",
+            token = "session",
+            grid = "preview",
+            "part"
+        ), line))
+    }
+    line <- console(list(event = "SAVED", saved_parts = 1L, pending_parts = 1L, rows = 2, percent_selected = 99.999))
+    stopifnot(grepl("1 part ", line), grepl("99.9%", line, fixed = TRUE), !grepl("100.0%", line, fixed = TRUE))
+})
+
+# Preview preparation shares configuration/session, repeats after token repair,
+# and sends exactly the selected filters (never the full indicator).
+for (prepare in c(FALSE, TRUE)) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        calls <- handles <- bodies <- list()
+        exports <- 0L
+        waits <- numeric()
+        verb <- function(method, url, ..., handle, body = NULL) {
+            stage <- if (method == "GET") "page" else if (grepl("dataGrid", url)) "grid" else "export"
+            calls[[length(calls) + 1L]] <<- stage
+            handles[[length(handles) + 1L]] <<- handle
+            if (method == "POST") bodies[[length(bodies) + 1L]] <<- body
+            configs <- Filter(function(x) inherits(x, "request"), list(...))
+            config <- do.call(c, configs)
+            stopifnot(config$options$connecttimeout == 7, config$options$useragent == "grid-test", config$options$timeout_ms <= 2000)
+            if (stage == "page") {
+                return(response(html))
+            }
+            if (stage == "grid") {
+                stopifnot(
+                    config$headers[["X-Requested-With"]] == "XMLHttpRequest",
+                    grepl("lineObjectIds=0", body, fixed = TRUE), !grepl("token|filterObjectIds|title=", body)
+                )
+                return(response('{"results":[],"__count":"0"}', type = "text/json"))
+            }
+            exports <<- exports + 1L
+            if (exports == 1L) {
+                return(response("", 302L))
+            }
+            response(xml, type = "text/xml")
+        }
+        mock("VERB", verb, mock("Sys.sleep",
+            function(time) waits <<- c(waits, time),
+            {
+                job <- fedstat_download("31074",
+                    filters = "*", path = path,
+                    prepare_grid = prepare, request_pause = 3, timeout_seconds = 2, verbose = FALSE,
+                    httr::user_agent("grid-test"), httr::config(connecttimeout = 7)
+                )
+                stopifnot(job$complete)
+            },
+            where = baseenv()
+        ), where = asNamespace("httr"))
+        expected <- if (prepare) c("page", "grid", "export", "page", "grid", "export") else c("page", "export", "page", "export")
+        stopifnot(
+            identical(unlist(calls), expected), all(waits >= 3), length(waits) == length(calls) - 1L,
+            all(vapply(handles, identical, logical(1L), handles[[1L]]))
+        )
+        selections <- lapply(bodies, function(body) {
+            fields <- strsplit(body, "&", fixed = TRUE)[[1L]]
+            sort(fields[startsWith(fields, "selectedFilterIds=")])
+        })
+        stopifnot(all(vapply(selections, identical, logical(1L), selections[[1L]])))
+        # Even an empty preview must still be followed by a validated SDMX export.
+        stopifnot(nrow(fedstat_collect(job)) == 2L)
+    })
+}
+
+# Preview failures cannot fall through to an export; access/rate limits never split.
+for (status in c(403L, 429L, 503L, 200L)) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        verb <- function(method, url, ...) {
+            if (method == "GET") {
+                return(response(html))
+            }
+            stopifnot(grepl("dataGrid", url))
+            response("<html>Unavailable</html>", status)
+        }
+        mock("VERB", verb, mock("Sys.sleep",
+            function(...) NULL,
+            {
+                expect_error(fedstat_download("31074",
+                    filters = "*", path = path,
+                    prepare_grid = TRUE, request_pause = 0, verbose = FALSE,
+                    retry_max_times = 1L, max_failures = 1L, recovery_max_times = 0
+                ), "fedstat_error")
+            },
+            where = baseenv()
+        ), where = asNamespace("httr"))
+        m <- readRDS(file.path(path, "manifest.rds"))
+        stopifnot(length(m$parts) == 1L, m$parts[[1]]$status == "pending")
+    })
+}
+expect_error(fedstat_download("31074", path = tempfile(), prepare_grid = NA), pattern = "prepare_grid")
+cat("Preview preparation and nominal progress regression tests passed.\n")
+
+# Cancellation or expiry during preview never starts an SDMX request.
+for (cancel in c(FALSE, TRUE)) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        clock <- 0
+        calls <- character()
+        verb <- function(method, url, ...) {
+            calls <<- c(calls, method)
+            if (method == "GET") {
+                return(response(html))
+            }
+            stopifnot(grepl("dataGrid", url))
+            if (cancel) stop(simpleError("Operation was aborted by an application callback", quote(curl_fetch_memory(url, handle))))
+            clock <<- 3601
+            response('{"results":[]}', type = "application/json")
+        }
+        mock("fedstat_elapsed", function() clock, mock("VERB",
+            verb,
+            {
+                action <- function() {
+                    fedstat_download("31074",
+                        filters = "*", path = path,
+                        prepare_grid = TRUE, request_pause = 0, verbose = FALSE
+                    )
+                }
+                if (cancel) {
+                    stopifnot(tryCatch(
+                        {
+                            action()
+                            FALSE
+                        },
+                        interrupt = function(e) TRUE
+                    ))
+                } else {
+                    expect_error(action(), "fedstat_time_limit")
+                }
+            },
+            where = asNamespace("httr")
+        ))
+        stopifnot(identical(calls, c("GET", "POST")), !dir.exists(file.path(path, ".lock")))
+        events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+        stopifnot(!any(vapply(events, function(e) e$event %in% c("RETRY", "SPLIT", "RECOVER", "SAVED"), logical(1))))
+    })
+}
+
+# An explicitly empty preview plus a repeated SDMX redirect is not a size failure.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    stages <- character()
+    verb <- function(method, url, ...) {
+        stage <- if (method == "GET") "page" else if (grepl("dataGrid", url)) "grid" else "export"
+        stages <<- c(stages, stage)
+        if (stage == "page") {
+            return(response(html))
+        }
+        if (stage == "grid") {
+            return(response('{"results":[],"__count":0}', type = "text/json"))
+        }
+        response("", 302L)
+    }
+    mock("VERB", verb, mock("Sys.sleep",
+        function(...) NULL,
+        {
+            e <- expect_error(fedstat_download("31074",
+                filters = "*", path = path,
+                prepare_grid = TRUE, request_pause = 0, verbose = FALSE
+            ), "fedstat_empty_export")
+            stopifnot(e$evidence == "empty_preview")
+        },
+        where = baseenv()
+    ), where = asNamespace("httr"))
+    stopifnot(identical(stages, c("page", "grid", "export", "page", "grid", "export")))
+    m <- readRDS(file.path(path, "manifest.rds"))
+    stopifnot(length(m$parts) == 1L, m$parts[[1L]]$status == "pending")
+    events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+    stopifnot(!any(vapply(events, function(e) e$event %in% c("SPLIT", "RECOVER", "SAVED"), logical(1))))
+})

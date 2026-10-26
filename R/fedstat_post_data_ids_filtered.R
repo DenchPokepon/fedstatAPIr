@@ -69,21 +69,33 @@ fedstat_post_data_ids_filtered <- function(data_ids,
             attempts = retry_max_times, before = before
         )
     }
+    session$preview_empty <- FALSE
+    if (isTRUE(session$prepare_grid)) {
+        session$preview_empty <- fedstat_prepare_grid(data_ids, session, httr_verbose, ...,
+            timeout_seconds = timeout_seconds, before = before
+        )
+    }
     body <- fedstat_form(data_ids, session, data_format)
     # A failed POST may have consumed the token too. The recovery owner decides
     # whether to refresh; this primitive never silently repeats an export.
     session$used <- TRUE
-    response <- fedstat_request("POST",
+    response <- tryCatch(fedstat_request("POST",
         paste0(session$base_url, "/indicator/downloadData.do?format=", data_format),
         httr_verbose, httr::content_type("application/x-www-form-urlencoded"),
         ...,
         body = body, handle = session$handle, timeout_seconds = timeout_seconds,
         stage = "export", before = before
-    )
+    ), fedstat_redirect = function(e) {
+        if (isTRUE(session$preview_empty)) {
+            e$evidence <- "empty_preview"
+            e$message <- "Fedstat reported an empty preview but redirected the SDMX export. This part is not yet confirmed."
+        }
+        stop(e)
+    })
     fedstat_export_content(response, data_format)
 }
 
-fedstat_form <- function(data_ids, session, format) {
+fedstat_form <- function(data_ids, session, format, grid = FALSE) {
     required <- c("filter_field_id", "filter_value_id", "filter_value_title", "filter_field_object_ids")
     if (!is.data.frame(data_ids) || !all(required %in% names(data_ids)) || !nrow(data_ids) ||
         anyNA(data_ids[required])) {
@@ -107,6 +119,14 @@ fedstat_form <- function(data_ids, session, format) {
         "title", "struts.token.name", session$token_name, "id",
         fields$filter_field_object_ids, rep("selectedFilterIds", nrow(data_ids))
     )
+    if (grid) {
+        # The browser puts hidden/filter dimensions on rows in its preview.
+        keys <- c(
+            ifelse(fields$filter_field_object_ids == "filterObjectIds", "lineObjectIds", fields$filter_field_object_ids),
+            rep("selectedFilterIds", nrow(data_ids))
+        )
+        values <- c(fields$filter_field_id, paste0(data_ids$filter_field_id, "_", data_ids$filter_value_id))
+    }
     encode <- function(x) vapply(enc2utf8(as.character(x)), utils::URLencode, "", reserved = TRUE)
     paste0(encode(keys), "=", encode(values), collapse = "&")
 }

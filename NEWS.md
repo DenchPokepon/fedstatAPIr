@@ -1,5 +1,13 @@
 # fedstatAPIr (development)
 
+* Optional `prepare_grid = TRUE` applies each part's filters to the browser
+  preview before SDMX export, sharing the session, pauses and time allowance.
+* Explicitly empty previews followed by repeated SDMX redirects now produce a
+  specific error after session renewal, retaining progress without more splitting.
+* Progress reports completed nominal combinations, including after subdivision
+  and resume. Retry messages identify the failed step; filter readiness is explicit.
+* Sources use styler with four-space indentation.
+
 * Batch downloads now default to a one-hour time allowance, without an HTTP-count
   ceiling. Requests and pauses share it; expiry preserves resumable progress.
 * The batch size control is `max_nominal_cells_request` (default 100,000).

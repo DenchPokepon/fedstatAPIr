@@ -22,7 +22,7 @@ remotes::install_github("DenchPokepon/fedstatAPIr")
 ```
 
 The examples below use `fedstat_download()` and require development version
-1.1.0.9006 or later.
+1.1.0.9007 or later.
 To install a downloaded source copy, run `R CMD INSTALL .` in its folder.
 
 ## Download data
@@ -89,7 +89,13 @@ Filters combine: 20 years × 12 months × 90 territories × 1,000 products gives
 21.6 million possible combinations. Actual observations may be much fewer, but the
 request can still be expensive. Output row count is not known ahead of time.
 
-The package limits combinations per part and halves large requests. By default it
+The package halves the field with the most selected values until each part fits
+`max_nominal_cells_request`; the other fields retain their selection. After two
+failed attempts (the default), transient data failures may cause another split.
+Ambiguous redirects are only split after a token refresh has also failed to help.
+Metadata/token GET failures, explicit token errors, rate limits and access refusals
+do not trigger splitting. A split roughly halves combinations, not necessarily
+bytes or response time. By default it
 waits 30–60 seconds between requests to reduce load on the shared service.
 Temporary failures are retried with pauses; persistent failures stop the download
 without discarding saved data. `filters = "*"` selects the indicator's entire
@@ -125,7 +131,10 @@ Existing partitions are not merged on resume.
 max_nominal_cells_request = 250000 # Up to 250,000 filter combinations, not output rows
 ```
 
-By default, short console messages show progress and saved rows. `verbose = FALSE`
+Short console messages show saved rows and the percentage of selected filter
+combinations covered by saved parts. This survives further splitting and resume.
+It is **not a time estimate**: combinations vary in speed and may have no data.
+At 100%, final integrity checks still need to finish. `verbose = FALSE`
 hides updates; warnings and errors remain visible. Use `verbose = "detailed"`
 for technical events. The full `download.log` is written in every mode. Messages
 also work in the RStudio console; interrupting a call retains saved progress.
@@ -135,6 +144,26 @@ before refreshing the download session. Repeated refusals increase the pause;
 recovery remains bounded by the time allowance and retry settings. This does not
 solve CAPTCHAs, and the detection alone does not prove a CAPTCHA was presented.
 See `?fedstat_download` for `access_pause` and other network/retry settings.
+
+## Prepare the website preview first
+
+If direct exports fail, try adding `prepare_grid = TRUE` to the same download
+call. Before **each export attempt**, this applies that part's filters to
+`dataGrid.do` using the same session, like the website's Apply button. Preview
+results are discarded; only validated SDMX is saved. An empty preview is not
+accepted as evidence of a complete empty SDMX export.
+
+The default is `FALSE`: this adds a request and server work for each attempt.
+Preview requests share pacing, HTTP configuration and the one-hour allowance.
+This may help some failures but does not guarantee faster downloads or bypass
+access checks. You can enable it when resuming an existing folder. The diagnostic
+`tools/prices.R` script enables it to exercise this path.
+
+If the preview explicitly reports zero observations but SDMX redirects (HTTP 302),
+the package refreshes the session and retries. If that still fails, it explains
+the conflict and retains the unfinished part instead of repeatedly subdividing
+it. Other saved parts remain safe. An empty preview alone does not mark a part
+complete.
 
 ## Removing saved parts
 
@@ -150,6 +179,21 @@ Alternatively, `data <- fedstat_collect(job, remove_parts = TRUE)` removes parts
 only after the entire table has been read and validated. The table then exists
 **only in R memory** until you save it. Logs, the manifest and unrelated files
 remain. A cleaned download cannot be resumed or collected again.
+
+## Stopping on Windows
+
+Ctrl+C retains saved parts. In R/RStudio it returns control to the session;
+network calls may take time to observe cancellation. The Windows R 4.3
+`bin/Rscript.exe` wrapper can return to CMD before its child exits, leaving a late
+cancellation message after the prompt. Run `bin/x64/Rscript.exe` directly instead
+(adjust your installed version):
+
+```bat
+"C:\Program Files\R\R-4.3.2\bin\x64\Rscript.exe" tools/prices.R ../fedstat-price-check
+```
+
+Wait for the process to finish before restarting. After a forced termination,
+remove a stale `.lock` directory only once no R process is still using the job.
 
 ## Troubleshooting
 

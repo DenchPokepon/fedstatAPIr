@@ -39,12 +39,13 @@ Ordinary `tryCatch(..., error = ...)` still works. Prefer condition classes and
 | `fedstat_rate_limit` | HTTP 429 | Honor `e$retry_after`; do not subdivide |
 | `fedstat_blocked` | HTTP 403 or suspected HTML access check/refusal | Batch downloads warn, cool down and refresh; bounded by recovery count and time |
 | `fedstat_unexpected_response` | HTML or unexpected media | Batch jobs may probe smaller parts after one session repair; never assume empty data |
+| `fedstat_empty_export` | Explicitly empty preview plus repeated SDMX redirect after session renewal | Inspect the selection; part remains unfinished, without further subdivision |
 | `fedstat_metadata`, `fedstat_parse` | Unexpected page/export structure | Inspect; do not subdivide |
 | `fedstat_truncated` | Source explicitly reports truncation | Subdivide within the time allowance |
 | `fedstat_budget`, `fedstat_unavailable` | Bounded job stopped | Progress remains; resume later |
 
 All these inherit from `fedstat_error` and `error`. `stage` distinguishes
-`metadata`, `token`, `export`, `parse` and `schedule`. HTTP errors include `status`;
+`metadata`, `token`, `grid`, `export`, `parse` and `schedule`. HTTP errors include `status`;
 rate-limited/unavailable responses may include a parsed `retry_after` in seconds.
 Normal R programming, argument and storage errors remain normal errors.
 
@@ -188,3 +189,20 @@ New manifests include `parts_dir = "parts"`; their data files go into `parts/`.
 Older manifests without that field keep their flat layout. No manual migration
 or redownload is needed, and the directory-level API is unchanged. Always use
 the paths recorded in `manifest.rds` rather than assuming a particular file layout.
+
+## Preview preparation and progress (1.1.0.9007)
+
+`fedstat_download(prepare_grid = TRUE)` sends a preview POST for the exact part
+before every SDMX attempt, after any token refresh, on the same session handle.
+The default remains direct export (`FALSE`). Preview failures prevent that export
+attempt; transient/ambiguous preview failures share the bounded data retry and
+splitting policy. Refusals and rate limits retain their cooldown behavior.
+Preview responses are checked for JSON `results` but never used as observations
+or proof of completeness. They share pacing, configuration and time allowance.
+The six legacy function signatures remain unchanged.
+
+`percent_selected` in logs sums the Cartesian weights of completed parts against
+the frozen selection. Split parents are excluded. It also works with existing
+checkpoints without migration. Console percentages stay below 100% while any part
+is pending; they are not a prediction of rows or remaining time. Retry messages
+identify filters, session renewal, preview preparation or export separately.

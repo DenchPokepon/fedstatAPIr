@@ -41,10 +41,26 @@ fedstat_logger <- function(path, indicator_id, verbose, context) {
     report
 }
 
-fedstat_progress <- function(manifest) {
+fedstat_progress <- function(manifest, cache = NULL) {
     done <- if (is.null(manifest)) list() else Filter(function(p) p$status == "complete", manifest$parts)
     pending <- if (is.null(manifest)) 0L else sum(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))
+    percent <- if (is.null(manifest)) {
+        0
+    } else {
+        total <- sum(log(as.numeric(table(manifest$selection$filter_field_id))))
+        100 * sum(vapply(done, function(p) {
+            # Selection and completed parts are immutable within a run. Avoid
+            # recounting their dimensions for every request/wait/log event.
+            if (!is.null(cache) && !is.null(cache[[p$id]])) {
+                return(cache[[p$id]])
+            }
+            weight <- exp(sum(log(as.numeric(table(manifest$selection$filter_field_id[p$rows])))) - total)
+            if (!is.null(cache)) cache[[p$id]] <- weight
+            weight
+        }, numeric(1L)))
+    }
     list(
+        percent_selected = min(100, percent),
         saved_parts = length(done), pending_parts = pending,
         rows = sum(vapply(done, function(p) as.numeric(p$nrow), numeric(1L)))
     )
@@ -88,6 +104,15 @@ fedstat_verbosity <- function(verbose) {
 
 fedstat_console <- function(e) {
     number <- function(n) format(n, big.mark = ",", scientific = FALSE, trim = TRUE)
+    parts <- paste(e$saved_parts, if (identical(as.integer(e$saved_parts), 1L)) "part" else "parts")
+    progress <- if (is.null(e$percent_selected)) {
+        ""
+    } else {
+        paste0(
+            " (", format(round(min(e$percent_selected, if (e$pending_parts > 0L) 99.9 else 100), 1), nsmall = 1),
+            "% of selection)"
+        )
+    }
     switch(e$event,
         START = paste0(
             "==> Downloading indicator ", e$indicator_id, ". Up to ",
@@ -95,21 +120,30 @@ fedstat_console <- function(e) {
         ),
         PREPARE = "==> Reading available filters...",
         VERIFY = "==> Checking previously saved data...",
-        RESUME = paste0("==> Continuing with ", e$saved_parts, " parts already saved."),
+        RESUME = paste0("==> Continuing with ", parts, " already saved", progress, "."),
+        SELECTION = "==> Filters ready. Starting the download.",
         DOWNLOAD = "==> Downloading the next part...",
-        SAVED = paste0("  Saved ", number(e$rows), " rows so far in ", e$saved_parts, " parts."),
-        RETRY = "  Fedstat did not return the data. Will try again after a pause.",
+        SAVED = paste0("  Saved ", number(e$rows), " rows in ", parts, progress, "."),
+        PART_ERROR = if (identical(e$evidence, "empty_preview")) {
+            "  The preview is empty, but the export has not confirmed it."
+        },
+        RETRY = switch(e$stage,
+            metadata = "  Could not read the available filters. Retrying after a pause...",
+            token = "  Could not renew the download session. Retrying after a pause...",
+            grid = "  Could not prepare the table preview. Retrying after a pause...",
+            "  Could not download this part. Retrying after a pause..."
+        ),
         RECOVER = if (!identical(e$reason, "fedstat_blocked")) {
             paste0(
-                "  Fedstat is still unavailable. Pausing for at least ", round(e$seconds / 60, 1), " minutes before trying again."
+                "  Fedstat is still unavailable. Pausing for at least ", round(e$seconds / 60, 1), " min before trying again."
             )
         },
         SPLIT = if (!identical(e$reason, "size_limit")) "  This request failed. Trying smaller parts.",
         VALIDATE = "==> Download finished. Checking the saved data...",
-        COMPLETE = paste0("==> Ready: ", number(e$rows), " rows in ", e$saved_parts, " saved parts. Use fedstat_collect() to open the table."),
-        INTERRUPTED = paste0("  Stopped by you. ", e$saved_parts, " parts are saved; run the same call to continue."),
+        COMPLETE = paste0("==> Ready: ", number(e$rows), " rows in ", parts, ". Use fedstat_collect() to open the table."),
+        INTERRUPTED = paste0("  Stopped by you. ", parts, " saved; run the same call to continue."),
         STOP = paste0(
-            "  Download stopped. ", e$saved_parts, " parts are saved. ",
+            "  Download stopped. ", parts, " saved. ",
             if (identical(e$error_class, "fedstat_time_limit")) {
                 "Time is up; run the same call to continue."
             } else {
