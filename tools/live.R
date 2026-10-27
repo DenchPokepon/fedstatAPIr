@@ -35,8 +35,8 @@ reused <- tryCatch(
 cat("Same-session token reuse:", reused, "\n")
 Sys.sleep(30)
 job <- fedstat_download("37089", config,
-    filters = filters, path = file.path(out, "parts"),
-    max_nominal_cells_request = 1, time_limit_seconds = 600, request_pause = 30,
+    filters = filters, cache_dir = file.path(out, "parts"),
+    max_nominal_cells_request = 1, total_time_limit_seconds = 600, request_pause = 30,
     timeout_seconds = 90, retry_max_times = 2
 )
 combined <- fedstat_collect(job)
@@ -48,7 +48,7 @@ canonical <- function(x) {
 }
 stopifnot(identical(canonical(baseline), canonical(combined)))
 # A completed resume must not need the network.
-resumed <- fedstat_download("37089", filters = filters, path = job$path)
+resumed <- fedstat_download("37089", filters = filters, cache_dir = job$path)
 stopifnot(resumed$complete)
 cat(
     "PASS: split == unsplit; completed resume verified. Elapsed minutes:",

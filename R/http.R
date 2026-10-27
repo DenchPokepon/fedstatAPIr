@@ -179,7 +179,7 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
         if (is.function(time_left)) {
             if (available <= request_seconds && inherits(result, "fedstat_transient") &&
                 grepl("timed? ?out|timeout", conditionMessage(result), ignore.case = TRUE)) {
-                fedstat_time_expired(attr(before, "time_limit_seconds"))
+                fedstat_time_expired(attr(before, "total_time_limit_seconds"))
             }
             time_left()
         }
@@ -201,4 +201,13 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
 fedstat_event <- function(before, event, message, ...) {
     report <- attr(before, "report")
     if (is.function(report)) report(event, message, ...)
+}
+
+# Treat the identifier as an opaque page code, not an integer.
+fedstat_indicator_id <- function(x) {
+    if ((!is.character(x) && !is.numeric(x)) || length(x) != 1L || is.na(x) ||
+        (is.numeric(x) && !is.finite(x)) || !nzchar(trimws(as.character(x)))) {
+        stop("indicator_id must be one nonempty code from the indicator page address.", call. = FALSE)
+    }
+    as.character(x)
 }

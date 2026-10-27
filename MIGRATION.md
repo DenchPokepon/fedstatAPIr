@@ -39,7 +39,6 @@ Ordinary `tryCatch(..., error = ...)` still works. Prefer condition classes and
 | `fedstat_rate_limit` | HTTP 429 | Honor `e$retry_after`; do not subdivide |
 | `fedstat_blocked` | HTTP 403 or suspected HTML access check/refusal | Batch downloads warn, cool down and refresh; bounded by recovery count and time |
 | `fedstat_unexpected_response` | HTML or unexpected media | Batch jobs may probe smaller parts after one session repair; never assume empty data |
-| `fedstat_empty_export` | Explicitly empty preview plus repeated SDMX redirect after session renewal | Inspect the selection; part remains unfinished, without further subdivision |
 | `fedstat_metadata`, `fedstat_parse` | Unexpected page/export structure | Inspect; do not subdivide |
 | `fedstat_truncated` | Source explicitly reports truncation | Subdivide within the time allowance |
 | `fedstat_budget`, `fedstat_unavailable` | Bounded job stopped | Progress remains; resume later |
@@ -60,7 +59,7 @@ The `curl_interrupt` option is enabled during requests and restored on exit.
 
 ## Time allowance and request size
 
-`fedstat_download()` now defaults to `time_limit_seconds = 3600` (one hour),
+`fedstat_download()` now defaults to `total_time_limit_seconds = 3600` (one hour),
 with no HTTP-count ceiling. Requests, pauses, retries and local processing share this allowance.
 Requests are capped by remaining time; required pauses are never shortened to
 fit. Local parsing, validation and saving finish safely and may extend elapsed
@@ -74,7 +73,7 @@ script. Values above 250,000 warn immediately, including in quiet mode. This is
 an advisory threshold, not a server capacity guarantee.
 
 `tools/prices.R` uses the same one-hour allowance. Logs include
-`time_limit_seconds`, `remaining_seconds` and `max_nominal_cells_request`.
+`total_time_limit_seconds`, `remaining_seconds` and `max_nominal_cells_request`.
 Console output defaults to short progress updates. `verbose = FALSE`/`"quiet"`
 hides updates, while `verbose = "detailed"` prints diagnostic events. `TRUE`
 means `"progress"`. JSON logs retain full events independently. Warnings use
@@ -131,7 +130,7 @@ the completed part files named in `manifest.rds` individually with `readRDS()`.
 Raw values and codes are retained as strings. Existing parser defaults are
 unchanged; raw values are the explicit contract of this new batch API.
 
-Use the same indicator, filter specification and path to resume. Completed
+Use the same indicator, filter specification and cache_dir to resume. Completed
 parts are checksummed; corrupt or missing parts stop with an actionable error.
 Changing a selection requires a new path. Request sizes, pauses and budgets can
 be adjusted on resume. Unlike the legacy filtering helper, the batch function
@@ -182,7 +181,7 @@ An ambiguous export redirect/HTML response rejected again after a token repair
 can now trigger subdivision. Explicit CSRF failures and token/metadata GET errors
 cannot. `max_failures` now counts ambiguous export rejections as well as transient
 transfer errors; reaching it triggers a bounded cooldown instead of more splitting.
-Persistent refusals still stop; redirects are never accepted as empty data.
+Persistent refusals still stop; redirects alone are never accepted as empty data. Explicit preview confirmation is described below.
 `RECOVER`, `WARNING` and more specific stop advice are written to the log.
 
 New manifests include `parts_dir = "parts"`; their data files go into `parts/`.
@@ -190,19 +189,45 @@ Older manifests without that field keep their flat layout. No manual migration
 or redownload is needed, and the directory-level API is unchanged. Always use
 the paths recorded in `manifest.rds` rather than assuming a particular file layout.
 
-## Preview preparation and progress (1.1.0.9007)
+## Batch argument names (1.1.0.9008)
 
-`fedstat_download(prepare_grid = TRUE)` sends a preview POST for the exact part
-before every SDMX attempt, after any token refresh, on the same session handle.
-The default remains direct export (`FALSE`). Preview failures prevent that export
-attempt; transient/ambiguous preview failures share the bounded data retry and
-splitting policy. Refusals and rate limits retain their cooldown behavior.
-Preview responses are checked for JSON `results` but never used as observations
-or proof of completeness. They share pacing, configuration and time allowance.
-The six legacy function signatures remain unchanged.
+These names belong to the unreleased batch API. Update existing development scripts:
 
-`percent_selected` in logs sums the Cartesian weights of completed parts against
-the frozen selection. Split parents are excluded. It also works with existing
-checkpoints without migration. Console percentages stay below 100% while any part
-is pending; they are not a prediction of rows or remaining time. Retry messages
-identify filters, session renewal, preview preparation or export separately.
+| Earlier name | Current name |
+| --- | --- |
+| `path` | `cache_dir` |
+| `time_limit_seconds` | `total_time_limit_seconds` |
+| `prepare_grid` | `prepare_before_download` |
+
+Old names raise an early error listing the replacements; they are not silently
+passed to httr. Reuse the same directory: no checkpoint migration or redownload
+is needed. The result's `$path` field remains unchanged. Logs now use
+`total_time_limit_seconds` and `prepare_before_download`. The six released
+function signatures are unchanged. Indicator IDs are opaque nonempty codes;
+numeric input is still accepted for convenience. URL components are encoded.
+
+## Preparation and empty selections
+
+`prepare_before_download = TRUE`, immediately after `token_policy`, applies each
+part's filters to `dataGrid.do` before every SDMX attempt on the same session.
+Some server states may require this sequence. It adds a data request and shares
+pacing, configuration and total time; it is disabled by default. Nonempty preview
+observations are never substituted for the SDMX result.
+
+An export HTTP 302 triggers an exact-selection preview check when preparation is
+disabled. When enabled, the current attempt's preview is reused. A JSON object
+containing exactly `results: []` and `__count: 0` (or `"0"`) confirms an empty
+part. Missing, contradictory or malformed fields are errors; redirects, access
+refusals and timeouts alone never establish emptiness. The saved zero-row RDS has
+an `ObsValue` character column; its manifest records
+`empty_evidence = "preview_zero_after_export_302"`. Other columns come from
+nonempty SDMX parts. An entirely empty download collects to a zero-row table
+with only `ObsValue`, since there is no SDMX schema to preserve.
+
+Empty parts count toward nominal progress, survive resume and undergo the same
+checksum/cleanup handling as other parts. The preview is an upstream assertion
+of no observations, not independent verification of Fedstat's database.
+
+`percent_selected` sums completed Cartesian regions against the frozen selection;
+split parents are excluded. It works with old checkpoints and is not an estimate
+of output rows or remaining time.

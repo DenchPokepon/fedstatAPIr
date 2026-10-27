@@ -41,6 +41,13 @@ response <- function(content, status = 200L, type = "text/html") {
 html <- readBin(fixture("indicator.html"), "raw", file.info(fixture("indicator.html"))$size)
 xml <- readBin(fixture("generic.xml"), "raw", file.info(fixture("generic.xml"))$size)
 
+# Older direct-export fixtures isolate their existing recovery policy; the actual
+# preview transport and empty-selection fallback are exercised below.
+real_preview <- internal("fedstat_prepare_before_download")
+unlockBinding("fedstat_prepare_before_download", ns)
+assign("fedstat_prepare_before_download", function(...) FALSE, ns)
+lockBinding("fedstat_prepare_before_download", ns)
+
 # Script discovery does not depend on the twelfth script; metadata/session stay separate.
 ids <- mock("fedstat_request", function(...) response(html), fedstat_get_data_ids("31074"))
 stopifnot(nrow(ids) == 5L, all(vapply(ids, is.character, logical(1L))))
@@ -190,15 +197,15 @@ with_batch <- function(code) {
 path <- tempfile()
 with_batch({
     job <- fedstat_download("31074",
-        filters = "*", path = path, max_nominal_cells_request = 2,
+        filters = "*", cache_dir = path, max_nominal_cells_request = 2,
         request_pause = 0, verbose = FALSE, recovery_max_times = 0
     )
     stopifnot(job$complete, nrow(job$parts) == 2L, nrow(fedstat_collect(job)) == 4L)
     mock(
         "fedstat_read_ids", function(...) stop("Must not make a network call"),
-        stopifnot(fedstat_download("31074", filters = "*", path = path, verbose = FALSE, recovery_max_times = 0)$complete)
+        stopifnot(fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE, recovery_max_times = 0)$complete)
     )
-    expect_error(fedstat_download("31074", filters = list(Year = "2024"), path = path, verbose = FALSE, recovery_max_times = 0), pattern = "different selection")
+    expect_error(fedstat_download("31074", filters = list(Year = "2024"), cache_dir = path, verbose = FALSE, recovery_max_times = 0), pattern = "different selection")
 })
 # Integrity checks detect tampering instead of silently accepting damaged checkpoints.
 m <- readRDS(file.path(path, "manifest.rds"))
@@ -223,13 +230,13 @@ expire_after_part <- function(code) {
 path <- tempfile()
 with_batch({
     expire_after_part(expect_error(fedstat_download("31074",
-        filters = "*", path = path, max_nominal_cells_request = 2,
+        filters = "*", cache_dir = path, max_nominal_cells_request = 2,
         request_pause = 0, verbose = FALSE, recovery_max_times = 0
     ), "fedstat_time_limit"))
     m <- readRDS(file.path(path, "manifest.rds"))
     stopifnot(sum(vapply(m$parts, function(p) p$status == "complete", logical(1L))) == 1L)
     stopifnot(fedstat_download("31074",
-        filters = "*", path = path, request_pause = 0,
+        filters = "*", cache_dir = path, request_pause = 0,
         verbose = FALSE, recovery_max_times = 0
     )$complete)
 })
@@ -248,7 +255,7 @@ for (stage in c("token", "metadata")) {
             mock(
                 "fedstat_backoff", function(...) 0,
                 expect_error(fedstat_download("31074",
-                    filters = "*", path = path, request_pause = 0,
+                    filters = "*", cache_dir = path, request_pause = 0,
                     verbose = FALSE, recovery_max_times = 0
                 ), "fedstat_transient")
             )
@@ -275,7 +282,7 @@ for (outage in c(FALSE, TRUE)) {
             mock("fedstat_backoff", function(...) 0, {
                 run <- function() {
                     fedstat_download("31074",
-                        filters = "*", path = path, request_pause = 0,
+                        filters = "*", cache_dir = path, request_pause = 0,
                         max_failures = 3L, verbose = FALSE, recovery_max_times = 0
                     )
                 }
@@ -293,15 +300,15 @@ with_batch({
     first <- list(Year = c(2024, 2025), Area = c("First", "Second"))
     reordered <- list(" area " = c("SECOND", "first", "first"), YEAR = c("2025", "2024"))
     job <- fedstat_download("31074",
-        filters = first, path = path, max_nominal_cells_request = 2,
+        filters = first, cache_dir = path, max_nominal_cells_request = 2,
         request_pause = 0, verbose = FALSE, recovery_max_times = 0
     )
     mock(
         "fedstat_read_ids", function(...) stop("Unexpected network request"),
-        stopifnot(fedstat_download("31074", filters = reordered, path = path, verbose = FALSE, recovery_max_times = 0)$complete)
+        stopifnot(fedstat_download("31074", filters = reordered, cache_dir = path, verbose = FALSE, recovery_max_times = 0)$complete)
     )
     expect_error(fedstat_download("31074",
-        filters = list(Year = 2024, Area = "First"), path = path,
+        filters = list(Year = 2024, Area = "First"), cache_dir = path,
         verbose = FALSE, recovery_max_times = 0
     ), pattern = "different selection")
     # Old manifests are revalidated once, offline.
@@ -310,7 +317,7 @@ with_batch({
     saveRDS(m, file.path(path, "manifest.rds"))
     mock(
         "fedstat_read_ids", function(...) stop("Unexpected network request"),
-        stopifnot(fedstat_download("31074", filters = first, path = path, verbose = FALSE, recovery_max_times = 0)$complete)
+        stopifnot(fedstat_download("31074", filters = first, cache_dir = path, verbose = FALSE, recovery_max_times = 0)$complete)
     )
 })
 unlink(path, recursive = TRUE)
@@ -319,7 +326,7 @@ unlink(path, recursive = TRUE)
 path <- tempfile()
 with_batch(mock("fedstat_parse_sdmx", function(...) data.frame(Year = "2024", Area_code = "1", ObsValue = "1"), {
     expect_error(fedstat_download("31074",
-        filters = "*", path = path, max_nominal_cells_request = 2,
+        filters = "*", cache_dir = path, max_nominal_cells_request = 2,
         request_pause = 0, verbose = FALSE, recovery_max_times = 0
     ), pattern = "across parts")
     m <- readRDS(file.path(path, "manifest.rds"))
@@ -360,7 +367,7 @@ local({
         {
             job <- fedstat_download("31074",
                 filters = list(Year = c("2024", "2025"), Area = "First"),
-                path = path, max_nominal_cells_request = 1, token_policy = "refresh", request_pause = 0, verbose = FALSE, recovery_max_times = 0
+                cache_dir = path, max_nominal_cells_request = 1, token_policy = "refresh", request_pause = 0, verbose = FALSE, recovery_max_times = 0
             )
             stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L)
         },
@@ -389,7 +396,7 @@ unlink(path, recursive = TRUE)
 path <- tempfile()
 mock("VERB", function(...) response("secret response body", status = 503L),
     expect_error(fedstat_download("31074",
-        filters = "*", path = path, retry_max_times = 1,
+        filters = "*", cache_dir = path, retry_max_times = 1,
         verbose = FALSE, recovery_max_times = 0
     ), "fedstat_transient"),
     where = asNamespace("httr")
@@ -406,7 +413,7 @@ with_batch(mock("fedstat_post_data_ids_filtered", function(...) {
     stop("Interrupt was not handled")
 }, stopifnot(tryCatch(
     {
-        fedstat_download("31074", filters = "*", path = path, verbose = FALSE, recovery_max_times = 0)
+        fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE, recovery_max_times = 0)
         FALSE
     },
     interrupt = function(e) TRUE
@@ -427,7 +434,7 @@ local({
         ids
     }, mock("fedstat_backoff", function(...) 0, {
         job <- fedstat_download("31074",
-            filters = "*", path = path, request_pause = 0,
+            filters = "*", cache_dir = path, request_pause = 0,
             recovery_pause = 0, recovery_max_times = 1, verbose = FALSE
         )
         stopifnot(job$complete, calls == 3L)
@@ -464,7 +471,7 @@ local({
         "fedstat_backoff", function(...) 0,
         mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw), {
             job <- fedstat_download("31074",
-                filters = list(Year = "*", Area = "First"), path = path,
+                filters = list(Year = "*", Area = "First"), cache_dir = path,
                 request_pause = 0, recovery_pause = 0, verbose = FALSE
             )
             stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L, posts == 4L, gets == 4L)
@@ -485,7 +492,7 @@ local({
         internal("fedstat_error")("redirect", "redirect", "export", 302L)
     }, mock("fedstat_backoff", function(...) 0, {
         expect_error(fedstat_download("31074",
-            filters = "*", path = path, request_pause = 0,
+            filters = "*", cache_dir = path, request_pause = 0,
             recovery_pause = 0, recovery_max_times = 1, max_failures = 3, verbose = FALSE
         ), "fedstat_unavailable")
         stopifnot(calls == 6L)
@@ -499,7 +506,7 @@ unlink(path, recursive = TRUE)
 path <- tempfile()
 with_batch({
     expire_after_part(expect_error(fedstat_download("31074",
-        filters = "*", path = path, max_nominal_cells_request = 2,
+        filters = "*", cache_dir = path, max_nominal_cells_request = 2,
         request_pause = 0, verbose = FALSE
     ), "fedstat_time_limit"))
     m <- readRDS(file.path(path, "manifest.rds"))
@@ -514,7 +521,7 @@ with_batch({
     saveRDS(m, file.path(path, "manifest.rds"))
     unlink(file.path(path, "parts"), recursive = TRUE)
     job <- fedstat_download("31074",
-        filters = "*", path = path,
+        filters = "*", cache_dir = path,
         request_pause = 0, verbose = FALSE
     )
     stopifnot(job$complete, !dir.exists(file.path(path, "parts")), nrow(fedstat_collect(job)) == 4L)
@@ -527,7 +534,7 @@ with_batch(mock("fedstat_parse_sdmx", function(data_raw, ...) {
     warning("fixture parser warning", call. = FALSE)
     unserialize(data_raw)
 }, suppressWarnings(fedstat_download("31074",
-    filters = "*", path = path,
+    filters = "*", cache_dir = path,
     request_pause = 0, verbose = FALSE
 ))))
 events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
@@ -561,7 +568,7 @@ for (status in c(429L, 403L)) {
             {
                 run <- function() {
                     fedstat_download("31074",
-                        filters = "*", path = path,
+                        filters = "*", cache_dir = path,
                         request_pause = 0, recovery_pause = 0, verbose = FALSE
                     )
                 }
@@ -593,7 +600,7 @@ local({
             clock <<- 3600
             internal("fedstat_error")("redirect", "redirect", "export", 302L)
         }, expect_error(fedstat_download("31074",
-            filters = "*", path = path,
+            filters = "*", cache_dir = path,
             request_pause = 0, max_failures = 1, verbose = FALSE
         ), "fedstat_time_limit"))
     ))
@@ -648,7 +655,7 @@ for (typed in c(FALSE, TRUE)) {
             {
                 stopifnot(tryCatch(
                     {
-                        fedstat_download("31074", filters = "*", path = path, verbose = FALSE)
+                        fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE)
                         FALSE
                     },
                     interrupt = function(e) TRUE,
@@ -675,7 +682,7 @@ local({
         with_batch(withCallingHandlers(
             {
                 job <- fedstat_download("31074",
-                    filters = "*", path = path, max_nominal_cells_request = cells,
+                    filters = "*", cache_dir = path, max_nominal_cells_request = cells,
                     request_pause = 0
                 )
                 stopifnot(nrow(job$parts) == if (cells == 1L) 4L else 1L)
@@ -686,7 +693,7 @@ local({
             }
         ))
         events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-        stopifnot(events[[1L]]$max_nominal_cells_request == cells, events[[1L]]$time_limit_seconds == 3600)
+        stopifnot(events[[1L]]$max_nominal_cells_request == cells, events[[1L]]$total_time_limit_seconds == 3600)
         unlink(path, recursive = TRUE)
     }
     stopifnot(
@@ -698,10 +705,10 @@ cat("Cancellation, byte-sniffing and progress regression tests passed.\n")
 
 # Time is the default allowance.
 stopifnot(
-    formals(fedstat_download)$time_limit_seconds == 3600
+    formals(fedstat_download)$total_time_limit_seconds == 3600
 )
 for (value in list(0, NA, Inf, "one hour")) {
-    expect_error(fedstat_download("31074", path = tempfile(), time_limit_seconds = value))
+    expect_error(fedstat_download("31074", cache_dir = tempfile(), total_time_limit_seconds = value))
 }
 local({
     path <- tempfile()
@@ -715,8 +722,8 @@ local({
             clock <<- clock + 2
             serialize(fake_data(data_ids), NULL)
         }, expect_error(fedstat_download("31074",
-            filters = "*", path = path,
-            max_nominal_cells_request = 1, time_limit_seconds = 1, request_pause = 0,
+            filters = "*", cache_dir = path,
+            max_nominal_cells_request = 1, total_time_limit_seconds = 1, request_pause = 0,
             verbose = FALSE
         ), "fedstat_time_limit"))
         m <- readRDS(file.path(path, "manifest.rds"))
@@ -732,7 +739,7 @@ local({
         # A fresh invocation gets a fresh hour and skips the saved part.
         stopifnot(
             fedstat_download("31074",
-                filters = "*", path = path,
+                filters = "*", cache_dir = path,
                 max_nominal_cells_request = 1, request_pause = 0, verbose = FALSE
             )$complete,
             nrow(fedstat_collect(path)) == 4L
@@ -749,8 +756,8 @@ local({
         mock("Sys.sleep", function(...) stop("Must not sleep"),
             expect_error(
                 fedstat_download("31074",
-                    filters = "*", path = path,
-                    time_limit_seconds = 2, request_pause = 10, verbose = FALSE
+                    filters = "*", cache_dir = path,
+                    total_time_limit_seconds = 2, request_pause = 10, verbose = FALSE
                 ),
                 "fedstat_time_limit", "next required pause"
             ),
@@ -766,7 +773,7 @@ local({
     calls <- 0L
     before <- function() NULL
     attr(before, "time_left") <- function() 0.25
-    attr(before, "time_limit_seconds") <- 1
+    attr(before, "total_time_limit_seconds") <- 1
     verb <- function(method, url, ..., handle) {
         calls <<- calls + 1L
         configs <- Filter(function(x) inherits(x, "request"), list(...))
@@ -805,7 +812,7 @@ local({
     mock(
         "fedstat_elapsed", function() 0,
         expect_error(fedstat_download("31074",
-            path = path, time_limit_seconds = 0.0001,
+            cache_dir = path, total_time_limit_seconds = 0.0001,
             verbose = FALSE
         ), "fedstat_time_limit")
     )
@@ -851,7 +858,7 @@ local({
         {
             withCallingHandlers(
                 {
-                    job <- fedstat_download("31074", filters = "*", path = path, request_pause = 0, verbose = FALSE)
+                    job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
                     stopifnot(job$complete, nrow(job$parts) == 1L)
                 },
                 warning = function(w) {
@@ -876,7 +883,7 @@ for (mode in list(TRUE, FALSE, "detailed")) {
         original_options <- options()
         with_batch(withCallingHandlers(
             fedstat_download("31074",
-                filters = "*", path = path,
+                filters = "*", cache_dir = path,
                 max_nominal_cells_request = 250001, request_pause = 0, verbose = mode
             ),
             message = function(m) {
@@ -898,7 +905,7 @@ for (mode in list(TRUE, FALSE, "detailed")) {
         events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
         stopifnot(any(vapply(events, function(e) e$event == "WARNING", logical(1))))
         # The log connection and lock must be released between calls in the same R session.
-        with_batch(fedstat_download("31074", filters = "*", path = path, verbose = FALSE))
+        with_batch(fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE))
     })
 }
 
@@ -908,7 +915,7 @@ for (inline in c(TRUE, FALSE)) {
         path <- tempfile()
         on.exit(unlink(path, recursive = TRUE))
         with_batch({
-            job <- fedstat_download("31074", filters = "*", path = path, request_pause = 0, verbose = FALSE)
+            job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
             writeLines("keep", file.path(path, "notes.txt"))
             data <- fedstat_collect(job, remove_parts = inline)
             if (!inline) {
@@ -923,7 +930,7 @@ for (inline in c(TRUE, FALSE)) {
             )
             fedstat_cleanup(job)
             expect_error(fedstat_collect(job), pattern = "already been removed")
-            expect_error(fedstat_download("31074", filters = "*", path = path, verbose = FALSE), pattern = "removed after collection")
+            expect_error(fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE), pattern = "removed after collection")
         })
     })
 }
@@ -932,12 +939,12 @@ local({
     on.exit(unlink(path, recursive = TRUE))
     with_batch({
         expire_after_part(expect_error(fedstat_download("31074",
-            filters = "*", path = path,
+            filters = "*", cache_dir = path,
             max_nominal_cells_request = 2, request_pause = 0, verbose = FALSE
         ), "fedstat_time_limit"))
         expect_error(fedstat_cleanup(path), pattern = "incomplete")
         expect_error(fedstat_collect(path, remove_parts = TRUE), pattern = "incomplete")
-        job <- fedstat_download("31074", filters = "*", path = path, request_pause = 0, verbose = FALSE)
+        job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
         dir.create(file.path(path, ".lock"))
         expect_error(fedstat_cleanup(job), pattern = "in use")
         unlink(file.path(path, ".lock"), recursive = TRUE)
@@ -953,8 +960,8 @@ local({
 cat("Console, access cooldown and cleanup regression tests passed.\n")
 
 # Removed development names fail early rather than silently entering httr's dots.
-expect_error(fedstat_download("31074", path = tempfile(), max_cells = 250000), pattern = "Use max_nominal_cells_request")
-expect_error(fedstat_download("31074", path = tempfile(), max_combinations = 250000), pattern = "Use max_nominal_cells_request")
+expect_error(fedstat_download("31074", cache_dir = tempfile(), max_cells = 250000), pattern = "Use max_nominal_cells_request")
+expect_error(fedstat_download("31074", cache_dir = tempfile(), max_combinations = 250000), pattern = "Use max_nominal_cells_request")
 
 # The advisory is strictly above 250,000 and has normal R warning semantics.
 local({
@@ -962,7 +969,7 @@ local({
     on.exit(unlink(path, recursive = TRUE))
     with_batch(withCallingHandlers(
         fedstat_download("31074",
-            filters = "*", path = path,
+            filters = "*", cache_dir = path,
             max_nominal_cells_request = 250000, request_pause = 0, verbose = FALSE
         ),
         warning = function(w) stop("Unexpected size warning")
@@ -986,8 +993,8 @@ for (cancel in c(FALSE, TRUE)) {
             {
                 run <- function() {
                     suppressWarnings(fedstat_download("31074",
-                        filters = "*", path = path,
-                        request_pause = 0, time_limit_seconds = if (cancel) 3600 else 1, verbose = FALSE
+                        filters = "*", cache_dir = path,
+                        request_pause = 0, total_time_limit_seconds = if (cancel) 3600 else 1, verbose = FALSE
                     ))
                 }
                 if (cancel) {
@@ -1014,7 +1021,7 @@ local({
     outside <- tempfile()
     on.exit(unlink(c(path, outside), recursive = TRUE))
     with_batch({
-        job <- fedstat_download("31074", filters = "*", path = path, request_pause = 0, verbose = FALSE)
+        job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
         manifest <- readRDS(file.path(path, "manifest.rds"))
         part <- manifest$parts[[1L]]
         stopifnot(file.copy(file.path(path, part$file), outside))
@@ -1039,7 +1046,7 @@ local({
     on.exit(unlink(path, recursive = TRUE))
     with_batch({
         expire_after_part(expect_error(fedstat_download("31074",
-            filters = "*", path = path, max_nominal_cells_request = 2,
+            filters = "*", cache_dir = path, max_nominal_cells_request = 2,
             request_pause = 0, verbose = FALSE
         ), "fedstat_time_limit"))
         m <- readRDS(file.path(path, "manifest.rds"))
@@ -1050,7 +1057,7 @@ local({
             identical(internal("fedstat_progress")(m, cache), expected), length(ls(cache)) == 1L,
             identical(internal("fedstat_progress")(m, cache), expected)
         )
-        fedstat_download("31074", filters = "*", path = path, request_pause = 0, verbose = FALSE)
+        fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
         events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
         saved <- Filter(function(e) e$event %in% c("SAVED", "RESUME", "COMPLETE"), events)
         stopifnot(identical(vapply(saved, `[[`, 0, "percent_selected"), c(50, 50, 100, 100)))
@@ -1068,6 +1075,10 @@ local({
     line <- console(list(event = "SAVED", saved_parts = 1L, pending_parts = 1L, rows = 2, percent_selected = 99.999))
     stopifnot(grepl("1 part ", line), grepl("99.9%", line, fixed = TRUE), !grepl("100.0%", line, fixed = TRUE))
 })
+
+unlockBinding("fedstat_prepare_before_download", ns)
+assign("fedstat_prepare_before_download", real_preview, ns)
+lockBinding("fedstat_prepare_before_download", ns)
 
 # Preview preparation shares configuration/session, repeats after token repair,
 # and sends exactly the selected filters (never the full indicator).
@@ -1094,7 +1105,7 @@ for (prepare in c(FALSE, TRUE)) {
                     config$headers[["X-Requested-With"]] == "XMLHttpRequest",
                     grepl("lineObjectIds=0", body, fixed = TRUE), !grepl("token|filterObjectIds|title=", body)
                 )
-                return(response('{"results":[],"__count":"0"}', type = "text/json"))
+                return(response('{"results":[{}],"__count":"1"}', type = "text/json"))
             }
             exports <<- exports + 1L
             if (exports == 1L) {
@@ -1106,15 +1117,15 @@ for (prepare in c(FALSE, TRUE)) {
             function(time) waits <<- c(waits, time),
             {
                 job <- fedstat_download("31074",
-                    filters = "*", path = path,
-                    prepare_grid = prepare, request_pause = 3, timeout_seconds = 2, verbose = FALSE,
+                    filters = "*", cache_dir = path,
+                    prepare_before_download = prepare, request_pause = 3, timeout_seconds = 2, verbose = FALSE,
                     httr::user_agent("grid-test"), httr::config(connecttimeout = 7)
                 )
                 stopifnot(job$complete)
             },
             where = baseenv()
         ), where = asNamespace("httr"))
-        expected <- if (prepare) c("page", "grid", "export", "page", "grid", "export") else c("page", "export", "page", "export")
+        expected <- if (prepare) c("page", "grid", "export", "page", "grid", "export") else c("page", "export", "grid", "page", "export")
         stopifnot(
             identical(unlist(calls), expected), all(waits >= 3), length(waits) == length(calls) - 1L,
             all(vapply(handles, identical, logical(1L), handles[[1L]]))
@@ -1124,7 +1135,7 @@ for (prepare in c(FALSE, TRUE)) {
             sort(fields[startsWith(fields, "selectedFilterIds=")])
         })
         stopifnot(all(vapply(selections, identical, logical(1L), selections[[1L]])))
-        # Even an empty preview must still be followed by a validated SDMX export.
+        # A nonempty preview is followed by a validated SDMX export.
         stopifnot(nrow(fedstat_collect(job)) == 2L)
     })
 }
@@ -1145,8 +1156,8 @@ for (status in c(403L, 429L, 503L, 200L)) {
             function(...) NULL,
             {
                 expect_error(fedstat_download("31074",
-                    filters = "*", path = path,
-                    prepare_grid = TRUE, request_pause = 0, verbose = FALSE,
+                    filters = "*", cache_dir = path,
+                    prepare_before_download = TRUE, request_pause = 0, verbose = FALSE,
                     retry_max_times = 1L, max_failures = 1L, recovery_max_times = 0
                 ), "fedstat_error")
             },
@@ -1156,7 +1167,7 @@ for (status in c(403L, 429L, 503L, 200L)) {
         stopifnot(length(m$parts) == 1L, m$parts[[1]]$status == "pending")
     })
 }
-expect_error(fedstat_download("31074", path = tempfile(), prepare_grid = NA), pattern = "prepare_grid")
+expect_error(fedstat_download("31074", cache_dir = tempfile(), prepare_before_download = NA), pattern = "prepare_before_download")
 cat("Preview preparation and nominal progress regression tests passed.\n")
 
 # Cancellation or expiry during preview never starts an SDMX request.
@@ -1174,15 +1185,15 @@ for (cancel in c(FALSE, TRUE)) {
             stopifnot(grepl("dataGrid", url))
             if (cancel) stop(simpleError("Operation was aborted by an application callback", quote(curl_fetch_memory(url, handle))))
             clock <<- 3601
-            response('{"results":[]}', type = "application/json")
+            response('{"results":[],"__count":0}', type = "application/json")
         }
         mock("fedstat_elapsed", function() clock, mock("VERB",
             verb,
             {
                 action <- function() {
                     fedstat_download("31074",
-                        filters = "*", path = path,
-                        prepare_grid = TRUE, request_pause = 0, verbose = FALSE
+                        filters = "*", cache_dir = path,
+                        prepare_before_download = TRUE, request_pause = 0, verbose = FALSE
                     )
                 }
                 if (cancel) {
@@ -1205,36 +1216,180 @@ for (cancel in c(FALSE, TRUE)) {
     })
 }
 
-# An explicitly empty preview plus a repeated SDMX redirect is not a size failure.
+# A 302 alone never confirms emptiness. Exact zero previews complete normal
+# zero-row shards in either mode, including resume and cleanup of an all-empty job.
+for (prepare in c(FALSE, TRUE)) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        stages <- character()
+        verb <- function(method, url, ...) {
+            stage <- if (method == "GET") "page" else if (grepl("dataGrid", url)) "grid" else "export"
+            stages <<- c(stages, stage)
+            if (stage == "page") {
+                return(response(html))
+            }
+            if (stage == "grid") {
+                return(response('{"results":[],"__count":0}', type = "text/json"))
+            }
+            response("", 302L)
+        }
+        mock("VERB", verb, mock("Sys.sleep",
+            function(...) NULL,
+            {
+                job <- fedstat_download("31074",
+                    filters = "*", cache_dir = path,
+                    prepare_before_download = prepare, request_pause = 0, verbose = FALSE
+                )
+                stopifnot(
+                    job$complete, nrow(fedstat_collect(job)) == 0L,
+                    identical(names(fedstat_collect(job)), "ObsValue")
+                )
+            },
+            where = baseenv()
+        ), where = asNamespace("httr"))
+        expected <- if (prepare) c("page", "grid", "export") else c("page", "export", "grid")
+        stopifnot(identical(stages, expected))
+        m <- readRDS(file.path(path, "manifest.rds"))
+        stopifnot(m$parts[[1L]]$empty_evidence == "preview_zero_after_export_302")
+        mock(
+            "fedstat_read_ids", function(...) stop("No network on completed resume"),
+            stopifnot(fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE)$complete)
+        )
+        fedstat_cleanup(path)
+        stopifnot(!length(list.files(file.path(path, "parts"))))
+    })
+}
+
+# Reject nulls, objects, missing/conflicting counts, error envelopes and wrong media.
+for (payload in c(
+    "null", "0", '{"results":null,"__count":0}',
+    '{"results":{},"__count":0}', '{"results":[]}', '{"results":[],"__count":1}',
+    '{"results":[{}],"__count":0}', '{"results":[],"__count":0,"error":"failed"}'
+)) {
+    mock(
+        "fedstat_request", function(...) response(payload, type = "application/json"),
+        expect_error(real_preview(ids, internal("fedstat_session")(ids),
+            timeout_seconds = 1,
+            before = function() NULL
+        ), "fedstat_unexpected_response")
+    )
+}
+
+# An interrupted mixed job resumes from the old manifest layout, skips saved
+# observations, confirms the remaining empty sector and collects without extra NA rows.
 local({
     path <- tempfile()
     on.exit(unlink(path, recursive = TRUE))
-    stages <- character()
-    verb <- function(method, url, ...) {
-        stage <- if (method == "GET") "page" else if (grepl("dataGrid", url)) "grid" else "export"
-        stages <<- c(stages, stage)
-        if (stage == "page") {
-            return(response(html))
-        }
-        if (stage == "grid") {
-            return(response('{"results":[],"__count":0}', type = "text/json"))
-        }
-        response("", 302L)
-    }
-    mock("VERB", verb, mock("Sys.sleep",
-        function(...) NULL,
-        {
-            e <- expect_error(fedstat_download("31074",
-                filters = "*", path = path,
-                prepare_grid = TRUE, request_pause = 0, verbose = FALSE
-            ), "fedstat_empty_export")
-            stopifnot(e$evidence == "empty_preview")
+    with_batch(expire_after_part(expect_error(fedstat_download("31074",
+        filters = "*",
+        cache_dir = path, max_nominal_cells_request = 2, request_pause = 0, verbose = FALSE
+    ), "fedstat_time_limit")))
+    before <- readRDS(file.path(path, "manifest.rds"))
+    complete <- Filter(function(p) p$status == "complete", before$parts)[[1L]]
+    reference <- readRDS(file.path(path, complete$file))
+    attr(reference, "out.attrs") <- NULL
+    exports <- 0L
+    mock("VERB",
+        function(method, url, ...) {
+            if (method == "GET") {
+                return(response(html))
+            }
+            if (grepl("dataGrid", url)) {
+                return(response('{"__count":"0","results":[]}', type = "text/json"))
+            }
+            exports <<- exports + 1L
+            response("", 302L)
         },
-        where = baseenv()
-    ), where = asNamespace("httr"))
-    stopifnot(identical(stages, c("page", "grid", "export", "page", "grid", "export")))
-    m <- readRDS(file.path(path, "manifest.rds"))
-    stopifnot(length(m$parts) == 1L, m$parts[[1L]]$status == "pending")
-    events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-    stopifnot(!any(vapply(events, function(e) e$event %in% c("SPLIT", "RECOVER", "SAVED"), logical(1))))
+        {
+            job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
+            stopifnot(job$complete, exports == 1L, identical(fedstat_collect(job), reference))
+        },
+        where = asNamespace("httr")
+    )
 })
+
+# Opaque identifiers keep their spelling and are encoded as a single URL component.
+stopifnot(
+    internal("fedstat_indicator_id")("001-A") == "001-A",
+    internal("fedstat_indicator_id")(31074) == "31074"
+)
+for (invalid in list(NULL, NA, "", " ", c("a", "b"), list("a"), Inf)) {
+    expect_error(internal("fedstat_indicator_id")(invalid), pattern = "indicator_id")
+}
+local({
+    code <- "A/01?x=y"
+    markup <- html
+    mock("fedstat_request", function(method, url, ...) {
+        stopifnot(endsWith(url, "A%2F01%3Fx%3Dy"))
+        response(markup)
+    }, {
+        x <- fedstat_get_data_ids(code)
+        stopifnot(internal("fedstat_session")(x)$indicator_id == code)
+        internal("fedstat_refresh")(internal("fedstat_session")(x), timeout_seconds = 1)
+    })
+})
+for (name in c("path", "time_limit_seconds", "prepare_grid")) {
+    args <- list(indicator_id = "31074", cache_dir = tempfile())
+    args[[name]] <- "old"
+    expect_error(do.call(fedstat_download, args), pattern = "Rename")
+}
+stopifnot(names(formals(fedstat_download))[match("token_policy", names(formals(fedstat_download))) + 1L] == "prepare_before_download")
+cat("Empty selection, cache resume and opaque identifier tests passed.\n")
+
+# Fallback checks obey cancellation, access refusal and time allowance. None can
+# silently turn a failed export into an empty successful shard.
+for (failure in c("access", "interrupt", "deadline", "invalid")) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        clock <- 0
+        calls <- character()
+        verb <- function(method, url, ...) {
+            stage <- if (method == "GET") "page" else if (grepl("dataGrid", url)) "grid" else "export"
+            calls <<- c(calls, stage)
+            if (stage == "page") {
+                return(response(html))
+            }
+            if (stage == "export") {
+                if (failure == "deadline") clock <<- 3601
+                return(response("", 302L))
+            }
+            if (failure == "access") {
+                return(response("", 403L))
+            }
+            if (failure == "interrupt") stop(simpleError("Operation was aborted by an application callback", quote(curl_fetch_memory(url, handle))))
+            response('{"results":null,"__count":0}', type = "application/json")
+        }
+        mock("fedstat_elapsed", function() clock, mock("VERB",
+            verb,
+            {
+                action <- function() {
+                    fedstat_download("31074",
+                        filters = "*", cache_dir = path,
+                        request_pause = 0, retry_max_times = 1, recovery_max_times = 0, verbose = FALSE
+                    )
+                }
+                if (failure == "interrupt") {
+                    stopifnot(tryCatch(
+                        {
+                            action()
+                            FALSE
+                        },
+                        interrupt = function(e) TRUE
+                    ))
+                } else {
+                    expect_error(action(), switch(failure,
+                        access = "fedstat_blocked",
+                        deadline = "fedstat_time_limit",
+                        "fedstat_unexpected_response"
+                    ))
+                }
+            },
+            where = asNamespace("httr")
+        ))
+        m <- readRDS(file.path(path, "manifest.rds"))
+        stopifnot(length(m$parts) == 1, m$parts[[1]]$status == "pending", !dir.exists(file.path(path, ".lock")))
+        stopifnot(identical(calls, if (failure == "deadline") c("page", "export") else c("page", "export", "grid")))
+    })
+}

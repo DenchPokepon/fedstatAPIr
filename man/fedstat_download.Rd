@@ -8,25 +8,26 @@ fedstat_download(
   indicator_id,
   ...,
   filters = list(),
-  path,
+  cache_dir,
   max_nominal_cells_request = 1e+05,
   token_policy = c("reuse", "refresh"),
+  prepare_before_download = FALSE,
   timeout_seconds = 180,
   retry_max_times = 2L,
   request_pause = c(30, 60),
   max_depth = 20L,
   max_failures = 6L,
   verbose = TRUE,
-  log_file = file.path(path, "download.log"),
+  log_file = file.path(cache_dir, "download.log"),
   recovery_max_times = 3L,
   recovery_pause = 60,
-  time_limit_seconds = 3600,
-  access_pause = 300,
-  prepare_grid = FALSE
+  total_time_limit_seconds = 3600,
+  access_pause = 300
 )
 }
 \arguments{
-\item{indicator_id}{One indicator code.}
+\item{indicator_id}{One nonempty indicator code from its page address; kept
+as text. Numeric input is accepted for convenience.}
 
 \item{...}{HTTP configuration passed to metadata GET, token GET and export POST,
 for example \code{httr::user_agent()} or \code{httr::config(connecttimeout = 20)}.}
@@ -34,8 +35,9 @@ for example \code{httr::user_agent()} or \code{httr::config(connecttimeout = 20)
 \item{filters}{A named list, as in \code{\link[=fedstat_data_ids_filter]{fedstat_data_ids_filter()}}. Use the single
 string \code{"*"} to explicitly select every value of every dimension.}
 
-\item{path}{Directory for the manifest and verified parts. Use one directory
-per selection. New jobs store data in a \verb{parts/} subdirectory; old flat jobs
+\item{cache_dir}{Persistent working directory for the manifest and verified parts. Use one directory
+per selection. This is a cache for resumable parts, not the final table;
+it is retained until explicit cleanup. New jobs store data in a \verb{parts/} subdirectory; old flat jobs
 resume unchanged. Only one process may write to it at a time.}
 
 \item{max_nominal_cells_request}{Maximum product of selected dimension cardinalities per
@@ -47,10 +49,18 @@ be subdivided further.}
 \item{token_policy}{\code{"reuse"} reuses a token until rejection; \code{"refresh"} gets
 a fresh token before each subsequent export. Metadata is reused either way.}
 
+\item{prepare_before_download}{If \code{TRUE}, submit each part's filters to Fedstat's browser
+preview (\code{dataGrid.do}) before each export attempt, using the same session.
+Default \code{FALSE}: this adds an HTTP request and server work per attempt.
+Nonempty data come from SDMX. An export HTTP 302 with an explicitly empty
+preview confirms a zero-row part. Without preparation, redirects trigger
+a preview check automatically. Both requests
+share pacing, timeout configuration and the invocation's time allowance.}
+
 \item{timeout_seconds}{Maximum duration of each HTTP request, including transfer.}
 
 \item{retry_max_times}{Maximum data attempts per part before subdivision or
-cooldown, including the first. With \code{prepare_grid = TRUE}, each attempt
+cooldown, including the first. With \code{prepare_before_download = TRUE}, each attempt
 prepares the preview before exporting. Metadata and token GETs have their own attempts;
 all attempts share the invocation's time allowance.}
 
@@ -67,7 +77,7 @@ ambiguous export/preview failures; this limits subdivision during an outage.}
 R warnings and errors remain visible in every mode.}
 
 \item{log_file}{Append-only UTF-8 JSON Lines diagnostic log. Defaults to
-\code{download.log} inside \code{path}; \code{NULL} disables file logging. File logging is
+\code{download.log} inside \code{cache_dir}; \code{NULL} disables file logging. File logging is
 independent of \code{verbose}. Logs contain request stages, timings, counts and
 recovery decisions, never HTTP headers, cookies, tokens or response bodies.}
 
@@ -77,7 +87,7 @@ a successfully saved part. Use zero to stop after ordinary retries.}
 \item{recovery_pause}{Initial cooldown in seconds, doubled on each consecutive
 recovery (up to 64 times this value). Request pauses and Retry-After still apply.}
 
-\item{time_limit_seconds}{Time allowance for this invocation, in seconds;
+\item{total_time_limit_seconds}{Time allowance for this invocation, in seconds;
 defaults to 3600 (one hour). Includes requests, pauses and local processing.
 Requests are capped by the remaining time. Local validation and saving finish
 safely before stopping, so these operations can extend the elapsed time.}
@@ -85,12 +95,6 @@ safely before stopping, so these operations can extend the elapsed time.}
 \item{access_pause}{Seconds to wait after a suspected access check or refusal;
 defaults to 300 (five minutes). Repeated refusals double this pause and share
 \code{recovery_max_times} and the overall time allowance. No challenge is bypassed.}
-
-\item{prepare_grid}{If \code{TRUE}, submit each part's filters to Fedstat's browser
-preview (\code{dataGrid.do}) before each export attempt, using the same session.
-Default \code{FALSE}: this adds an HTTP request and server work per attempt.
-Preview data are discarded; only validated SDMX is saved. Both requests
-share pacing, timeout configuration and the invocation's time allowance.}
 }
 \value{
 A \code{fedstat_download} result with directory, completion status and part
@@ -113,7 +117,7 @@ seconds between requests, two attempts per part, and one hour per invocation.
 Three additional cooldown/recovery cycles are allowed without a
 successfully saved part, initially waiting 60 seconds and doubling each time.
 An export redirect rejected again after token repair may be subdivided, but
-is never accepted as empty data. Token/metadata failures do not cause splitting.
+needs a preview check to confirm no observations. Token/metadata failures do not cause splitting.
 There is no universal safe request size. A timeout may leave the
 server computing the original export, so retries also wait.
 
@@ -129,7 +133,7 @@ numeric versus character labels and repeated identical values.
 }
 \examples{
 \dontrun{
-job <- fedstat_download("31074", filters = "*", path = "cpi-download")
+job <- fedstat_download("31074", filters = "*", cache_dir = "cpi-download")
 data <- fedstat_collect(job)
 }
 }

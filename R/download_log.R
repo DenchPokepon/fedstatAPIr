@@ -116,7 +116,7 @@ fedstat_console <- function(e) {
     switch(e$event,
         START = paste0(
             "==> Downloading indicator ", e$indicator_id, ". Up to ",
-            round(e$time_limit_seconds / 60, 1), " minutes this run."
+            round(e$total_time_limit_seconds / 60, 1), " minutes this run."
         ),
         PREPARE = "==> Reading available filters...",
         VERIFY = "==> Checking previously saved data...",
@@ -124,9 +124,8 @@ fedstat_console <- function(e) {
         SELECTION = "==> Filters ready. Starting the download.",
         DOWNLOAD = "==> Downloading the next part...",
         SAVED = paste0("  Saved ", number(e$rows), " rows in ", parts, progress, "."),
-        PART_ERROR = if (identical(e$evidence, "empty_preview")) {
-            "  The preview is empty, but the export has not confirmed it."
-        },
+        CHECK_EMPTY = "  Checking whether this part contains any observations...",
+        EMPTY = "  No observations in this part. Continuing...",
         RETRY = switch(e$stage,
             metadata = "  Could not read the available filters. Retrying after a pause...",
             token = "  Could not renew the download session. Retrying after a pause...",

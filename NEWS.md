@@ -1,9 +1,15 @@
 # fedstatAPIr (development)
 
-* Optional `prepare_grid = TRUE` applies each part's filters to the browser
+* Empty Cartesian parts now complete after an export HTTP 302 and an explicit
+  zero-row preview. Direct downloads query the preview only when needed.
+* Unreleased batch arguments are `cache_dir`, `total_time_limit_seconds` and
+  `prepare_before_download`; earlier names produce migration guidance.
+* Indicator identifiers are accepted as opaque codes rather than digits only.
+* Russian and English READMEs focus on downloading, collecting and resuming;
+  implementation details remain in the reference and technical notes.
+
+* Optional `prepare_before_download = TRUE` applies each part's filters to the browser
   preview before SDMX export, sharing the session, pauses and time allowance.
-* Explicitly empty previews followed by repeated SDMX redirects now produce a
-  specific error after session renewal, retaining progress without more splitting.
 * Progress reports completed nominal combinations, including after subdivision
   and resume. Retry messages identify the failed step; filter readiness is explicit.
 * Sources use styler with four-space indentation.

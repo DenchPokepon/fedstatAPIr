@@ -70,8 +70,8 @@ fedstat_post_data_ids_filtered <- function(data_ids,
         )
     }
     session$preview_empty <- FALSE
-    if (isTRUE(session$prepare_grid)) {
-        session$preview_empty <- fedstat_prepare_grid(data_ids, session, httr_verbose, ...,
+    if (isTRUE(session$prepare_before_download)) {
+        session$preview_empty <- fedstat_prepare_before_download(data_ids, session, httr_verbose, ...,
             timeout_seconds = timeout_seconds, before = before
         )
     }

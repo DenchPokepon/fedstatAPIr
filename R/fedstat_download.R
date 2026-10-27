@@ -3,33 +3,37 @@
 #' @description Resolves filters once, partitions large selections and saves
 #'   validated RDS parts. Requests are sequential. Repeating the same call resumes
 #'   saved progress. No optional storage packages are required.
-#' @param indicator_id One indicator code.
+#' @param indicator_id One nonempty indicator code from its page address; kept
+#'   as text. Numeric input is accepted for convenience.
 #' @param ... HTTP configuration passed to metadata GET, token GET and export POST,
 #'   for example `httr::user_agent()` or `httr::config(connecttimeout = 20)`.
 #' @param filters A named list, as in [fedstat_data_ids_filter()]. Use the single
 #'   string `"*"` to explicitly select every value of every dimension.
-#' @param path Directory for the manifest and verified parts. Use one directory
-#'   per selection. New jobs store data in a `parts/` subdirectory; old flat jobs
+#' @param cache_dir Persistent working directory for the manifest and verified parts. Use one directory
+#'   per selection. This is a cache for resumable parts, not the final table;
+#'   it is retained until explicit cleanup. New jobs store data in a `parts/` subdirectory; old flat jobs
 #'   resume unchanged. Only one process may write to it at a time.
 #' @param max_nominal_cells_request Maximum product of selected dimension cardinalities per
 #'   initial request. A conservative size proxy, not an expected row count or a
 #'   server guarantee. Default: 100,000. Values above 250,000 warn because their
 #'   reliability depends on the indicator and service load. Failed exports can
 #'   be subdivided further.
-#' @param time_limit_seconds Time allowance for this invocation, in seconds;
+#' @param total_time_limit_seconds Time allowance for this invocation, in seconds;
 #'   defaults to 3600 (one hour). Includes requests, pauses and local processing.
 #'   Requests are capped by the remaining time. Local validation and saving finish
 #'   safely before stopping, so these operations can extend the elapsed time.
 #' @param token_policy `"reuse"` reuses a token until rejection; `"refresh"` gets
 #'   a fresh token before each subsequent export. Metadata is reused either way.
-#' @param prepare_grid If `TRUE`, submit each part's filters to Fedstat's browser
+#' @param prepare_before_download If `TRUE`, submit each part's filters to Fedstat's browser
 #'   preview (`dataGrid.do`) before each export attempt, using the same session.
 #'   Default `FALSE`: this adds an HTTP request and server work per attempt.
-#'   Preview data are discarded; only validated SDMX is saved. Both requests
+#'   Nonempty data come from SDMX. An export HTTP 302 with an explicitly empty
+#'   preview confirms a zero-row part. Without preparation, redirects trigger
+#'   a preview check automatically. Both requests
 #'   share pacing, timeout configuration and the invocation's time allowance.
 #' @param timeout_seconds Maximum duration of each HTTP request, including transfer.
 #' @param retry_max_times Maximum data attempts per part before subdivision or
-#'   cooldown, including the first. With `prepare_grid = TRUE`, each attempt
+#'   cooldown, including the first. With `prepare_before_download = TRUE`, each attempt
 #'   prepares the preview before exporting. Metadata and token GETs have their own attempts;
 #'   all attempts share the invocation's time allowance.
 #' @param request_pause Seconds to wait between HTTP requests: a number or a
@@ -41,7 +45,7 @@
 #'   `FALSE` or `"quiet"` to hide updates, `"detailed"` for diagnostic events.
 #'   R warnings and errors remain visible in every mode.
 #' @param log_file Append-only UTF-8 JSON Lines diagnostic log. Defaults to
-#'   `download.log` inside `path`; `NULL` disables file logging. File logging is
+#'   `download.log` inside `cache_dir`; `NULL` disables file logging. File logging is
 #'   independent of `verbose`. Logs contain request stages, timings, counts and
 #'   recovery decisions, never HTTP headers, cookies, tokens or response bodies.
 #' @param recovery_max_times Maximum automatic cooldown/recovery cycles without
@@ -64,7 +68,7 @@
 #'   Three additional cooldown/recovery cycles are allowed without a
 #'   successfully saved part, initially waiting 60 seconds and doubling each time.
 #'   An export redirect rejected again after token repair may be subdivided, but
-#'   is never accepted as empty data. Token/metadata failures do not cause splitting.
+#'   needs a preview check to confirm no observations. Token/metadata failures do not cause splitting.
 #'   There is no universal safe request size. A timeout may leave the
 #'   server computing the original export, so retries also wait.
 #'
@@ -80,33 +84,37 @@
 #' @export
 #' @examples
 #' \dontrun{
-#' job <- fedstat_download("31074", filters = "*", path = "cpi-download")
+#' job <- fedstat_download("31074", filters = "*", cache_dir = "cpi-download")
 #' data <- fedstat_collect(job)
 #' }
-fedstat_download <- function(indicator_id, ..., filters = list(), path,
+fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                              max_nominal_cells_request = 100000, token_policy = c("reuse", "refresh"),
+                             prepare_before_download = FALSE,
                              timeout_seconds = 180, retry_max_times = 2L,
                              request_pause = c(30, 60),
                              max_depth = 20L, max_failures = 6L, verbose = TRUE,
-                             log_file = file.path(path, "download.log"),
+                             log_file = file.path(cache_dir, "download.log"),
                              recovery_max_times = 3L, recovery_pause = 60,
-                             time_limit_seconds = 3600, access_pause = 300,
-                             prepare_grid = FALSE) {
+                             total_time_limit_seconds = 3600, access_pause = 300) {
     obsolete <- intersect(names(match.call(expand.dots = FALSE)$...), c("max_cells", "max_combinations"))
     if (length(obsolete)) stop("Use max_nominal_cells_request instead of ", paste(obsolete, collapse = ", "), ".", call. = FALSE)
-    if (!is.logical(prepare_grid) || length(prepare_grid) != 1L || is.na(prepare_grid)) {
-        stop("prepare_grid must be TRUE or FALSE.", call. = FALSE)
+    if (!is.logical(prepare_before_download) || length(prepare_before_download) != 1L || is.na(prepare_before_download)) {
+        stop("prepare_before_download must be TRUE or FALSE.", call. = FALSE)
     }
+    old_names <- c(path = "cache_dir", time_limit_seconds = "total_time_limit_seconds", prepare_grid = "prepare_before_download")
+    supplied <- intersect(names(match.call(expand.dots = FALSE)$...), names(old_names))
+    if (length(supplied)) stop("Rename ", paste(paste(supplied, "to", old_names[supplied]), collapse = "; "), ". Your saved download folder can be reused.", call. = FALSE)
+    path <- cache_dir
     started <- fedstat_elapsed()
     token_policy <- match.arg(token_policy)
     verbose <- fedstat_verbosity(verbose)
     fedstat_positive(access_pause, "access_pause")
-    for (name in c("max_nominal_cells_request", "time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
+    for (name in c("max_nominal_cells_request", "total_time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
         fedstat_positive(get(name), name, integer = name %in% c("max_nominal_cells_request", "retry_max_times", "max_depth", "max_failures"))
     }
     time_left <- function() {
-        seconds <- time_limit_seconds - (fedstat_elapsed() - started)
-        if (seconds < 0.001) fedstat_time_expired(time_limit_seconds)
+        seconds <- total_time_limit_seconds - (fedstat_elapsed() - started)
+        if (seconds < 0.001) fedstat_time_expired(total_time_limit_seconds)
         seconds
     }
     if (!is.numeric(recovery_max_times) || length(recovery_max_times) != 1L ||
@@ -122,12 +130,9 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         stop("request_pause must be a nonnegative number or increasing pair.", call. = FALSE)
     }
     if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
-        stop("path must be a download directory.", call. = FALSE)
+        stop("cache_dir must be a folder for saved download parts.", call. = FALSE)
     }
-    if (length(indicator_id) != 1L || is.na(indicator_id) || !grepl("^[0-9]+$", as.character(indicator_id))) {
-        stop("indicator_id must be a single numeric indicator code.", call. = FALSE)
-    }
-    indicator_id <- as.character(indicator_id)
+    indicator_id <- fedstat_indicator_id(indicator_id)
     filters <- fedstat_filters(filters)
     dir.create(path, recursive = TRUE, showWarnings = FALSE)
     path <- normalizePath(path, mustWork = TRUE)
@@ -149,8 +154,8 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
     report <- fedstat_logger(log_file, indicator_id, verbose, function() {
         c(list(
             request = requests, part = current_part,
-            time_limit_seconds = time_limit_seconds,
-            remaining_seconds = max(0, time_limit_seconds - (fedstat_elapsed() - started)),
+            total_time_limit_seconds = total_time_limit_seconds,
+            remaining_seconds = max(0, total_time_limit_seconds - (fedstat_elapsed() - started)),
             attempt = current_attempt, stage = phase
         ), fedstat_progress(manifest, progress_cache))
     })
@@ -198,12 +203,12 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
         {
             report("START", paste0(
                 "Indicator ", indicator_id, "; max_nominal_cells_request=", format(max_nominal_cells_request, scientific = FALSE, trim = TRUE),
-                "; time limit: ", time_limit_seconds, " s (", round(time_limit_seconds / 60, 1), " min); directory: ", path
+                "; time limit: ", total_time_limit_seconds, " s (", round(total_time_limit_seconds / 60, 1), " min); directory: ", path
             ),
             package_version = as.character(utils::packageVersion("fedstatAPIr")),
             r_version = as.character(getRversion()), platform = R.version$platform,
             max_nominal_cells_request = max_nominal_cells_request, token_policy = token_policy, timeout_seconds = timeout_seconds,
-            prepare_grid = prepare_grid,
+            prepare_before_download = prepare_before_download,
             request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
             max_failures = max_failures, log_file = log_file,
             recovery_max_times = recovery_max_times, recovery_pause = recovery_pause, access_pause = access_pause
@@ -286,7 +291,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                 time_left()
                 if (requests > 0L) {
                     pause <- max(stats::runif(1L, min(request_pause), max(request_pause)), delay)
-                    if (pause >= time_left()) fedstat_time_expired(time_limit_seconds, waiting = TRUE)
+                    if (pause >= time_left()) fedstat_time_expired(total_time_limit_seconds, waiting = TRUE)
                     until <- format(Sys.time() + pause, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
                     report("WAIT", paste0("Waiting ", round(pause, 1), " s; next request after ", until),
                         seconds = pause, next_request_at = until, reason = if (delay > 0) "retry" else "pacing"
@@ -299,7 +304,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
             }
             attr(gate, "report") <- report
             attr(gate, "time_left") <- time_left
-            attr(gate, "time_limit_seconds") <- time_limit_seconds
+            attr(gate, "total_time_limit_seconds") <- total_time_limit_seconds
             attr(gate, "backoff") <- function(seconds) delay <<- max(delay, seconds)
             report("PREPARE", "Reading available filters.")
             phase <- "metadata"
@@ -322,7 +327,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
             }
             session <- fedstat_session(metadata)
             session$before <- gate
-            session$prepare_grid <- prepare_grid
+            session$prepare_before_download <- prepare_before_download
             phase <- "selection"
             if (is.null(manifest)) {
                 selection <- fedstat_download_selection(metadata, filters)
@@ -400,6 +405,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                 report("DOWNLOAD", "Downloading the next part.")
                 selected <- fedstat_attach_session(selected, session)
                 repaired <- FALSE
+                session$empty_confirmed <- FALSE
                 for (attempt in seq_len(retry_max_times)) {
                     current_attempt <- attempt
                     phase <- "export"
@@ -426,6 +432,29 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                         },
                         error = identity
                     )
+                    # Redirects are ambiguous. Only an explicit zero-row preview
+                    # for this exact selection can confirm an empty part.
+                    if (inherits(result, "fedstat_redirect") && identical(result$stage, "export") && identical(result$status, 302L)) {
+                        result <- tryCatch(
+                            {
+                                empty <- isTRUE(session$preview_empty)
+                                if (!prepare_before_download) {
+                                    report("CHECK_EMPTY", "Checking whether this selection contains observations.")
+                                    empty <- fedstat_prepare_before_download(selected, session, ...,
+                                        timeout_seconds = timeout_seconds, before = gate
+                                    )
+                                }
+                                if (empty) {
+                                    session$empty_confirmed <- TRUE
+                                    report("EMPTY", "Fedstat explicitly reported zero observations for this part.", evidence = "empty_preview")
+                                    data.frame(ObsValue = character(), stringsAsFactors = FALSE)
+                                } else {
+                                    result
+                                }
+                            },
+                            error = identity
+                        )
+                    }
                     if (!inherits(result, "error")) break
                     # Ambiguous preview/export rejections can justify a smaller probe only after a
                     # session repair. GETs, explicit CSRF refusals and rate limits cannot split.
@@ -454,13 +483,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                     )
                 }
                 if (inherits(result, "error")) {
-                    if (repaired && identical(result$evidence, "empty_preview")) {
-                        fedstat_error(
-                            "Fedstat reports no observations in the preview, but still refuses the SDMX export after session renewal. This part remains unfinished; further splitting would not confirm completeness. Check the selection on the website before resuming.",
-                            "empty_export", "export", result$status,
-                            evidence = "empty_preview"
-                        )
-                    }
                     rejected <- repaired && isTRUE(result$stage %in% c("export", "grid")) &&
                         (inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
                     splittable <- rejected || inherits(result, "fedstat_truncated") ||
@@ -483,6 +505,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), path,
                 manifest$parts[[index]]$file <- file
                 manifest$parts[[index]]$checksum <- unname(tools::md5sum(file.path(path, file)))
                 manifest$parts[[index]]$nrow <- nrow(result)
+                if (isTRUE(session$empty_confirmed)) manifest$parts[[index]]$empty_evidence <- "preview_zero_after_export_302"
                 manifest$parts[[index]]$retrieved_at <- format(Sys.time(), tz = "UTC", usetz = TRUE)
                 save_manifest()
                 report("SAVED", paste0("Saved part ", part$id, ": ", nrow(result), " rows."), file = file)

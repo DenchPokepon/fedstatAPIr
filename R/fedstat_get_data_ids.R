@@ -80,13 +80,10 @@ fedstat_get_data_ids <- function(indicator_id,
 fedstat_read_ids <- function(indicator_id, ..., timeout_seconds = 180,
                              retry_max_times = 3, httr_verbose = NULL,
                              before = function() NULL) {
-    if (length(indicator_id) != 1L || is.na(indicator_id) ||
-        !grepl("^[0-9]+$", as.character(indicator_id))) {
-        stop("indicator_id must be a single numeric indicator code.", call. = FALSE)
-    }
+    indicator_id <- fedstat_indicator_id(indicator_id)
     base_url <- "https://www.fedstat.ru"
     handle <- httr::handle(base_url)
-    response <- fedstat_request("GET", paste0(base_url, "/indicator/", indicator_id),
+    response <- fedstat_request("GET", paste0(base_url, "/indicator/", utils::URLencode(indicator_id, reserved = TRUE)),
         httr_verbose, ...,
         handle = handle, timeout_seconds = timeout_seconds,
         attempts = retry_max_times, stage = "metadata", before = before
