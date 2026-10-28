@@ -79,10 +79,10 @@ fedstat_get_data_ids <- function(indicator_id,
 
 fedstat_read_ids <- function(indicator_id, ..., timeout_seconds = 180,
                              retry_max_times = 3, httr_verbose = NULL,
-                             before = function() NULL) {
+                             before = function() NULL, session = NULL) {
     indicator_id <- fedstat_indicator_id(indicator_id)
     base_url <- "https://www.fedstat.ru"
-    handle <- httr::handle(base_url)
+    handle <- if (is.null(session)) httr::handle(base_url) else session$handle
     response <- fedstat_request("GET", paste0(base_url, "/indicator/", utils::URLencode(indicator_id, reserved = TRUE)),
         httr_verbose, ...,
         handle = handle, timeout_seconds = timeout_seconds,

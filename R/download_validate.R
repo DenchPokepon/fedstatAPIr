@@ -24,9 +24,14 @@ fedstat_validate_parts <- function(manifest, path, report = function(...) NULL) 
     if (!dir.create(scratch)) stop("Cannot create validation workspace in ", path, call. = FALSE)
     on.exit(unlink(scratch, recursive = TRUE), add = TRUE)
     columns <- character()
+    schema <- NULL
     for (part in parts) {
         data <- readRDS(file.path(path, part$file))
         fedstat_check_data(data)
+        if (nrow(data)) {
+            if (!is.null(schema) && !setequal(schema, names(data))) fedstat_dictionary_changed()
+            schema <- names(data)
+        }
         columns <- union(columns, names(data))
     }
     columns <- fedstat_key_columns(columns)

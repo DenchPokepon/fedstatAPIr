@@ -94,6 +94,10 @@ to restore the filters; already downloaded parts will be skipped.
 Each run gets a fresh hour. Validating and saving an already received part may
 take a little extra time before stopping. See below for how to allow more time.
 
+If Fedstat changes the selected filters during a download, the package stops
+and keeps the saved parts. Start a new download in another working folder
+to avoid mixing different definitions.
+
 Keep the working folder until the download finishes. Use a different folder for
 a different selection. You can reopen a completed download later:
 

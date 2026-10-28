@@ -65,8 +65,12 @@ fedstat_refresh <- function(session, ..., timeout_seconds, attempts = 1L,
         handle = session$handle, timeout_seconds = timeout_seconds, attempts = attempts,
         stage = "token", before = before
     )
+    html <- xml2::read_html(response$content, encoding = "UTF-8")
+    if (!is.null(session$selection)) {
+        fedstat_check_selection(session$selection, fedstat_metadata(html))
+    }
     fresh <- fedstat_token(
-        xml2::read_html(response$content, encoding = "UTF-8"),
+        html,
         session$indicator_id, session$handle, session$base_url
     )
     session$token <- fresh$token

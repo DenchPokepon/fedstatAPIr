@@ -5,7 +5,7 @@
  <Header><ID>fixture</ID><Truncated>false</Truncated><Indicator id="31074"/></Header>
  <CodeLists>
   <structure:CodeList id="AREA"><structure:Name>Area</structure:Name>
-   <structure:Code value="001"><structure:Description>Example area</structure:Description></structure:Code>
+   <structure:Code value="001"><structure:Description>First</structure:Description></structure:Code>
   </structure:CodeList>
  </CodeLists>
  <DataSet>

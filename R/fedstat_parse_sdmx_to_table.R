@@ -41,7 +41,7 @@ fedstat_parse_sdmx_to_table <- function(data_raw, return_type = c("data", "dicti
 }
 
 fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
-                               try_to_parse_ObsValue = TRUE, indicator_id = NULL) {
+                               try_to_parse_ObsValue = TRUE, indicator_id = NULL, check_dictionary = NULL, selection = NULL) {
     # workaround for `:=` and CMD check
     field_id <- ObsValue <- NULL
 
@@ -107,6 +107,7 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
     if (anyDuplicated(codelist_tbl[, c("field_id", "value_id")])) {
         fedstat_error("Duplicate codes in the SDMX dictionary.", "parse", "parse")
     }
+    if (!is.null(check_dictionary)) check_dictionary(as.data.frame(codelist_tbl))
     if (return_type == "dictionary") {
         return(codelist_tbl)
     }
@@ -144,6 +145,13 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
         )
     }
 
+    if (!is.null(check_dictionary)) {
+        for (id in field_ids) {
+            allowed <- codelist_tbl$value_id[codelist_tbl$field_id == id]
+            if (anyNA(data[[id]]) || any(!data[[id]] %in% allowed)) fedstat_dictionary_changed()
+        }
+    }
+    if (!is.null(selection)) fedstat_check_requested_codes(data, codelist_tbl, selection)
     data_res <- lapply(field_ids, function(x) {
         codelist_tbl[field_id == x][
             ,

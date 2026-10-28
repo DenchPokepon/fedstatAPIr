@@ -20,11 +20,10 @@ fedstat_cleanup <- function(x) {
     manifest <- readRDS(file.path(path, "manifest.rds"))
     if (!identical(manifest$version, 1L)) stop("Unsupported download manifest version.", call. = FALSE)
     if (!isTRUE(manifest$cleaned)) {
-        if (any(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))) {
+        if (!isTRUE(manifest$validated) || any(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))) {
             stop("Download is incomplete; saved parts are needed to resume.", call. = FALSE)
         }
         fedstat_check_parts(manifest, path)
-        if (!isTRUE(manifest$validated)) fedstat_validate_parts(manifest, path)
     }
     fedstat_remove_parts(manifest, path)
     invisible(path)

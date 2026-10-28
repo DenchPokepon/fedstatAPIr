@@ -62,6 +62,14 @@
 #'   values do not expand that selection; removed or changed selected values and
 #'   changed dimension layouts stop the job. Tokens are never saved. Delete a
 #'   stale `.lock` directory only after confirming no process is using the job.
+#'   Filter definitions are also checked on token renewal, before accepting an
+#'   empty preview as a completed part, and before final completion. These checks
+#'   compare IDs, labels and layout, not the indicator's last-updated date.
+#'   SDMX dictionaries are checked across exports; conflicting definitions,
+#'   unknown observation codes and incompatible table schemas stop the job.
+#'   Metadata checks for empty parts and completion add paced HTTP requests.
+#'   These checks cannot detect a change that is reverted between checks, or a
+#'   change in meaning that retains the same IDs and labels.
 #'
 #'   Defaults are deliberately conservative: 100,000 filter combinations, 30--60
 #'   seconds between requests, two attempts per part, and one hour per invocation.
@@ -78,7 +86,7 @@
 #'   Before marking completion, checksums and observation keys are checked across
 #'   all parts using temporary disk buckets. This needs additional free disk space
 #'   for keys and memory for a key bucket, but never combines the full dataset.
-#'   Completed older manifests are validated once on resume without network access.
+#'   Already validated downloads can be opened again without network access.
 #'   Resume tolerates reordered filters/values, case/whitespace differences,
 #'   numeric versus character labels and repeated identical values.
 #' @export
@@ -238,12 +246,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 phase <- "validation"
                 report("VERIFY", "Checking saved-part checksums.")
                 fedstat_check_parts(manifest, path)
-                if (all(vapply(manifest$parts, function(p) p$status != "pending", logical(1L)))) {
-                    if (!isTRUE(manifest$validated)) {
-                        fedstat_validate_parts(manifest, path, report)
-                        manifest$validated <- TRUE
-                        save_manifest()
-                    }
+                if (isTRUE(manifest$validated) && all(vapply(manifest$parts, function(p) p$status != "pending", logical(1L)))) {
                     report("COMPLETE", paste0("Already complete and verified: ", path))
                     return(fedstat_download_result(manifest, path))
                 }
@@ -347,6 +350,24 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
             parts_dir <- if (is.null(manifest$parts_dir)) "" else manifest$parts_dir
             if (nzchar(parts_dir)) dir.create(file.path(path, parts_dir), showWarnings = FALSE)
             selection <- manifest$selection
+            session$selection <- selection
+            dictionary <- manifest$dictionary
+            if (is.null(dictionary)) dictionary <- fedstat_saved_dictionary(manifest, path)
+            check_dictionary <- function(current) {
+                dictionary <<- fedstat_check_dictionary(dictionary, current)
+            }
+            check_metadata <- function() {
+                report("CHECK_METADATA", "Checking that the selected filters have not changed.")
+                current <- fedstat_read_ids(indicator_id, ...,
+                    timeout_seconds = timeout_seconds, retry_max_times = retry_max_times,
+                    before = gate, session = session
+                )
+                fedstat_check_selection(selection, current)
+                fresh <- fedstat_session(current)
+                session$token <- fresh$token
+                session$token_name <- fresh$token_name
+                session$used <- FALSE
+            }
             counts <- table(selection$filter_field_id)
             report("SELECTION", paste0(
                 length(counts) - 1L, " dimensions; ",
@@ -422,8 +443,9 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                             )
                             phase <- "parse"
                             parse_started <- proc.time()[["elapsed"]]
-                            data <- fedstat_parse_sdmx(bytes, try_to_parse_ObsValue = FALSE, indicator_id = indicator_id)
+                            data <- fedstat_parse_sdmx(bytes, try_to_parse_ObsValue = FALSE, indicator_id = indicator_id, check_dictionary = check_dictionary, selection = selected)
                             fedstat_check_data(data)
+                            if (!nrow(data)) check_metadata()
                             report("PARSED", paste0(nrow(data), " rows validated."),
                                 rows = nrow(data),
                                 seconds = round(proc.time()[["elapsed"]] - parse_started, 3)
@@ -445,6 +467,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                                     )
                                 }
                                 if (empty) {
+                                    check_metadata()
                                     session$empty_confirmed <- TRUE
                                     report("EMPTY", "Fedstat explicitly reported zero observations for this part.", evidence = "empty_preview")
                                     data.frame(ObsValue = character(), stringsAsFactors = FALSE)
@@ -507,11 +530,13 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 manifest$parts[[index]]$nrow <- nrow(result)
                 if (isTRUE(session$empty_confirmed)) manifest$parts[[index]]$empty_evidence <- "preview_zero_after_export_302"
                 manifest$parts[[index]]$retrieved_at <- format(Sys.time(), tz = "UTC", usetz = TRUE)
+                manifest$dictionary <- dictionary
                 save_manifest()
                 report("SAVED", paste0("Saved part ", part$id, ": ", nrow(result), " rows."), file = file)
             }
             phase <- "validation"
             current_part <- current_attempt <- NULL
+            check_metadata()
             fedstat_validate_parts(manifest, path, report)
             manifest$validated <- TRUE
             save_manifest()
@@ -544,12 +569,12 @@ fedstat_download_selection <- function(metadata, filters) {
 fedstat_check_selection <- function(selection, metadata) {
     fields <- unique(selection$filter_field_id)
     if (!setequal(fields, unique(metadata$filter_field_id))) {
-        stop("Indicator dimensions changed; use a new download path.", call. = FALSE)
+        fedstat_dictionary_changed()
     }
-    key <- function(x) paste(x$filter_field_id, x$filter_value_id, sep = "_")
+    key <- function(x) fedstat_keys(x, c("filter_field_id", "filter_value_id"))
     current <- metadata[match(key(selection), key(metadata)), names(selection), drop = FALSE]
     if (anyNA(current) || !all(vapply(names(selection), function(n) identical(selection[[n]], current[[n]]), logical(1L)))) {
-        stop("Selected filter IDs, labels or layout changed; use a new download path.", call. = FALSE)
+        fedstat_dictionary_changed()
     }
 }
 
@@ -640,7 +665,7 @@ fedstat_collect <- function(x, remove_parts = FALSE) {
     manifest <- readRDS(file.path(path, "manifest.rds"))
     if (isTRUE(manifest$cleaned)) stop("Saved parts have already been removed. Use the table you collected and saved.", call. = FALSE)
     if (!identical(manifest$version, 1L)) stop("Unsupported download manifest version.", call. = FALSE)
-    if (any(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))) {
+    if (!isTRUE(manifest$validated) || any(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))) {
         stop("Download is incomplete; resume fedstat_download() before collecting.", call. = FALSE)
     }
     fedstat_check_parts(manifest, path)

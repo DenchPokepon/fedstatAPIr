@@ -149,7 +149,8 @@ and response bodies are not logged. `tools/prices.R` also saves session details.
 
 The manifest gains a `validated` flag. A run is complete only after all parts
 pass integrity and cross-part duplicate-key checks. Existing manifests lacking
-this flag are validated once, offline, when resumed; no data are redownloaded.
+this flag need a resumed download to check current filter definitions and validate
+the saved parts; no data are redownloaded.
 Validation uses temporary key buckets in the job directory and needs extra disk
 space. Errors and normal cancellation clean these temporary files. After a hard
 process termination, leftover `.fedstat-validation-*` directories can be removed
@@ -217,7 +218,8 @@ observations are never substituted for the SDMX result.
 An export HTTP 302 triggers an exact-selection preview check when preparation is
 disabled. When enabled, the current attempt's preview is reused. A JSON object
 containing exactly `results: []` and `__count: 0` (or `"0"`) confirms an empty
-part. Missing, contradictory or malformed fields are errors; redirects, access
+part only after a fresh indicator-page check confirms that the selected filter
+definitions still exist unchanged. Missing, contradictory or malformed fields are errors; redirects, access
 refusals and timeouts alone never establish emptiness. The saved zero-row RDS has
 an `ObsValue` character column; its manifest records
 `empty_evidence = "preview_zero_after_export_302"`. Other columns come from
@@ -231,3 +233,34 @@ of no observations, not independent verification of Fedstat's database.
 `percent_selected` sums completed Cartesian regions against the frozen selection;
 split parents are excluded. It works with old checkpoints and is not an estimate
 of output rows or remaining time.
+
+
+## Changes to upstream dictionaries
+
+The batch downloader freezes filter IDs, labels and layout in its checkpoint.
+It compares these definitions with the indicator page on unfinished resume,
+on token renewal, before saving an empty part, and before marking completion.
+The page's update date is not used. Reordering and added unselected values are
+harmless; selected values disappearing or changing stop the job without deleting
+saved files. Wildcards remain fixed to the original selection.
+
+Token renewal already fetches the page, so its check adds no HTTP request.
+Empty-part and final checks fetch the page using the same session and obey the
+usual pacing, retries and time allowance. An unavailable check leaves the job
+unfinished; repeat the download call. Collection and cleanup require successful
+completion, even if every part file has already been saved.
+
+SDMX codes are not website filter IDs. Export dictionaries are checked separately:
+shared codes must retain their labels and fields, observation codes must exist in
+the export dictionary, and nonempty parts must have compatible columns. Where
+website and export dimension names match unambiguously, returned categories
+must also belong to the requested part. No numeric ID equivalence is assumed;
+fields without that mapping cannot receive this extra selection check. The
+checkpoint retains dictionary definitions across runs. Older unfinished jobs
+recover available code/label pairs from their saved tables; older completed jobs
+remain readable offline and are not retroactively certified by these new checks.
+
+A `fedstat_dictionary_changed` error is not retried or split. Start a separate
+job in a new `cache_dir` after inspecting the change. These checks cannot provide
+an atomic snapshot or detect meaning changes with unchanged IDs and labels,
+or changes that are reverted between checks.

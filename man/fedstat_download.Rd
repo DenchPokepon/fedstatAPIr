@@ -111,6 +111,14 @@ Wildcards are frozen when the manifest is created. On resume, added
 values do not expand that selection; removed or changed selected values and
 changed dimension layouts stop the job. Tokens are never saved. Delete a
 stale \code{.lock} directory only after confirming no process is using the job.
+Filter definitions are also checked on token renewal, before accepting an
+empty preview as a completed part, and before final completion. These checks
+compare IDs, labels and layout, not the indicator's last-updated date.
+SDMX dictionaries are checked across exports; conflicting definitions,
+unknown observation codes and incompatible table schemas stop the job.
+Metadata checks for empty parts and completion add paced HTTP requests.
+These checks cannot detect a change that is reverted between checks, or a
+change in meaning that retains the same IDs and labels.
 
 Defaults are deliberately conservative: 100,000 filter combinations, 30--60
 seconds between requests, two attempts per part, and one hour per invocation.
@@ -127,7 +135,7 @@ atomic snapshot of the upstream database. Parts preserve raw ObsValue strings.
 Before marking completion, checksums and observation keys are checked across
 all parts using temporary disk buckets. This needs additional free disk space
 for keys and memory for a key bucket, but never combines the full dataset.
-Completed older manifests are validated once on resume without network access.
+Already validated downloads can be opened again without network access.
 Resume tolerates reordered filters/values, case/whitespace differences,
 numeric versus character labels and repeated identical values.
 }

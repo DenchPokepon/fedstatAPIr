@@ -311,14 +311,14 @@ with_batch({
         filters = list(Year = 2024, Area = "First"), cache_dir = path,
         verbose = FALSE, recovery_max_times = 0
     ), pattern = "different selection")
-    # Old manifests are revalidated once, offline.
+    # Unvalidated manifests must also recheck upstream definitions before completion.
     m <- readRDS(file.path(path, "manifest.rds"))
     m$validated <- NULL
     saveRDS(m, file.path(path, "manifest.rds"))
-    mock(
-        "fedstat_read_ids", function(...) stop("Unexpected network request"),
-        stopifnot(fedstat_download("31074", filters = first, cache_dir = path, verbose = FALSE, recovery_max_times = 0)$complete)
-    )
+    stopifnot(fedstat_download("31074",
+        filters = first, cache_dir = path,
+        request_pause = 0, verbose = FALSE, recovery_max_times = 0
+    )$complete)
 })
 unlink(path, recursive = TRUE)
 
@@ -382,8 +382,8 @@ local({
     )
     requests <- events[types == "REQUEST"]
     stopifnot(
-        identical(vapply(requests, `[[`, "", "stage"), c("metadata", "export", "token", "export")),
-        identical(vapply(requests, function(e) as.integer(e$request), integer(1L)), 1:4)
+        identical(vapply(requests, `[[`, "", "stage"), c("metadata", "export", "token", "export", "metadata")),
+        identical(vapply(requests, function(e) as.integer(e$request), integer(1L)), 1:5)
     )
     split <- events[[which(types == "SPLIT")[1L]]]
     stopifnot(split$reason == "size_limit", split$dimension == "Year", sum(split$cardinalities) == 2L)
@@ -437,7 +437,7 @@ local({
             filters = "*", cache_dir = path, request_pause = 0,
             recovery_pause = 0, recovery_max_times = 1, verbose = FALSE
         )
-        stopifnot(job$complete, calls == 3L)
+        stopifnot(job$complete, calls == 4L)
     })))
     events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
     stopifnot(
@@ -474,7 +474,7 @@ local({
                 filters = list(Year = "*", Area = "First"), cache_dir = path,
                 request_pause = 0, recovery_pause = 0, verbose = FALSE
             )
-            stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L, posts == 4L, gets == 4L)
+            stopifnot(job$complete, nrow(fedstat_collect(job)) == 2L, posts == 4L, gets == 5L)
         })
     ), where = asNamespace("httr"))
     events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
@@ -869,7 +869,7 @@ local({
         },
         where = baseenv()
     ), where = asNamespace("httr"))
-    stopifnot(posts == 2L, gets == 2L, length(notices) == 1L, grepl("5 minutes", notices))
+    stopifnot(posts == 2L, gets == 3L, length(notices) == 1L, grepl("5 minutes", notices))
     events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
     stopifnot(any(vapply(events, function(e) identical(e$evidence, "access_refusal_text"), logical(1))))
 })
@@ -897,7 +897,7 @@ for (mode in list(TRUE, FALSE, "detailed")) {
         ))
         stopifnot(
             length(notices) == 1L, grepl("100,000", notices), identical(options(), original_options),
-            !any(grepl("\\r|\\033", output))
+            !any(grepl("\r|\033", output))
         )
         if (identical(mode, FALSE)) stopifnot(!length(output))
         if (identical(mode, TRUE)) stopifnot(any(grepl("Ready:", output)), !any(grepl("HTTP|START|SPLIT", output)))
@@ -1127,7 +1127,7 @@ for (prepare in c(FALSE, TRUE)) {
         ), where = asNamespace("httr"))
         expected <- if (prepare) c("page", "grid", "export", "page", "grid", "export") else c("page", "export", "grid", "page", "export")
         stopifnot(
-            identical(unlist(calls), expected), all(waits >= 3), length(waits) == length(calls) - 1L,
+            identical(unlist(calls), c(expected, "page")), all(waits >= 3), length(waits) == length(calls) - 1L,
             all(vapply(handles, identical, logical(1L), handles[[1L]]))
         )
         selections <- lapply(bodies, function(body) {
@@ -1249,7 +1249,7 @@ for (prepare in c(FALSE, TRUE)) {
             where = baseenv()
         ), where = asNamespace("httr"))
         expected <- if (prepare) c("page", "grid", "export") else c("page", "export", "grid")
-        stopifnot(identical(stages, expected))
+        stopifnot(identical(stages, c(expected, "page", "page")))
         m <- readRDS(file.path(path, "manifest.rds"))
         stopifnot(m$parts[[1L]]$empty_evidence == "preview_zero_after_export_302")
         mock(
@@ -1393,3 +1393,191 @@ for (failure in c("access", "interrupt", "deadline", "invalid")) {
         stopifnot(identical(calls, if (failure == "deadline") c("page", "export") else c("page", "export", "grid")))
     })
 }
+
+# Dictionary drift: compare actual definitions, not page dates or row positions.
+local({
+    frozen <- internal("fedstat_download_selection")(ids, list(Year = "2024", Area = "First"))
+    check <- internal("fedstat_check_selection")
+    check(frozen, ids[nrow(ids):1, ])
+    added <- ids
+    added <- rbind(added, transform(ids[ids$filter_value_id == "2025", ], filter_value_id = "2026", filter_value_title = "2026"))
+    check(frozen, added)
+    check(frozen, ids[ids$filter_value_id != "2025", ]) # unselected value
+    for (column in names(frozen)) {
+        changed <- ids
+        changed[changed$filter_value_id == "2024", column] <- "changed"
+        expect_error(check(frozen, changed), "fedstat_dictionary_changed")
+    }
+    expect_error(check(frozen, ids[ids$filter_value_id != "2024", ]), "fedstat_dictionary_changed")
+
+    session <- internal("fedstat_session")(ids)
+    session$selection <- frozen
+    token <- session$token
+    changed_html <- charToRaw(sub("title: '2024'", "title: 'revised'", rawToChar(html), fixed = TRUE))
+    mock(
+        "fedstat_request", function(...) response(changed_html),
+        expect_error(internal("fedstat_refresh")(session, timeout_seconds = 1), "fedstat_dictionary_changed")
+    )
+    stopifnot(identical(session$token, token))
+    session$selection <- NULL
+})
+
+# Classification snapshots persist code meanings, including codes absent from a later export.
+local({
+    check <- internal("fedstat_check_dictionary")
+    dictionary <- as.data.frame(fedstat_parse_sdmx_to_table(xml, return_type = "dictionary"))
+    stopifnot(identical(check(NULL, dictionary), dictionary))
+    later <- dictionary
+    later$value_id <- "002"
+    later$value_title <- "Another area"
+    combined <- check(dictionary, later)
+    stopifnot(nrow(combined) == 2L)
+    for (column in c("field_id", "field_title", "value_title")) {
+        changed <- dictionary
+        changed[[column]] <- "changed"
+        expect_error(check(combined, changed), "fedstat_dictionary_changed")
+    }
+    # A field rename is detected even when exports contain disjoint codes.
+    later$field_title <- "Changed area classification"
+    expect_error(check(dictionary, later), "fedstat_dictionary_changed")
+    unknown <- charToRaw(sub('concept="AREA" value="001"', 'concept="AREA" value="999"', rawToChar(xml), fixed = TRUE))
+    expect_error(internal("fedstat_parse_sdmx")(unknown, check_dictionary = function(x) NULL), "fedstat_dictionary_changed")
+})
+
+# Drift at renewal, empty confirmation or final completion must never report success.
+for (scenario in c("token", "empty", "final")) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        pages <- exports <- 0L
+        changed_html <- charToRaw(sub("title: '2024'", "title: 'revised'", rawToChar(html), fixed = TRUE))
+        verb <- function(method, url, ...) {
+            if (method == "GET") {
+                pages <<- pages + 1L
+                return(response(if (pages == 1L) html else changed_html))
+            }
+            if (grepl("dataGrid", url)) {
+                return(response(if (scenario == "empty") '{"results":[],"__count":0}' else '{"results":[{}],"__count":1}'))
+            }
+            exports <<- exports + 1L
+            if (scenario != "final") {
+                return(response("", 302L))
+            }
+            response(xml, type = "text/xml")
+        }
+        mock("VERB", verb, mock(
+            "fedstat_backoff", function(...) 0,
+            expect_error(fedstat_download("31074",
+                filters = "*", cache_dir = path,
+                request_pause = 0, verbose = FALSE
+            ), "fedstat_dictionary_changed")
+        ), where = asNamespace("httr"))
+        m <- readRDS(file.path(path, "manifest.rds"))
+        stopifnot(!m$validated, exports == 1L, !dir.exists(file.path(path, ".lock")))
+        if (scenario == "final") {
+            stopifnot(m$parts[[1]]$status == "complete", !is.null(m$dictionary))
+            checksum <- m$parts[[1]]$checksum
+            # A failed final check is not bypassed just because all files exist.
+            mock("VERB", verb,
+                expect_error(fedstat_download("31074",
+                    filters = "*", cache_dir = path,
+                    request_pause = 0, verbose = FALSE
+                ), "fedstat_dictionary_changed"),
+                where = asNamespace("httr")
+            )
+            stopifnot(identical(unname(tools::md5sum(file.path(path, m$parts[[1]]$file))), checksum))
+        } else {
+            stopifnot(m$parts[[1]]$status == "pending")
+        }
+        expect_error(fedstat_collect(path), pattern = "incomplete")
+    })
+}
+cat("Dictionary drift regression tests passed.\n")
+
+# A changed export dictionary is caught before the second shard is saved,
+# including when resuming a checkpoint made before dictionary snapshots existed.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    exports <- 0L
+    verb <- function(method, url, ..., body = NULL) {
+        if (method == "GET") {
+            return(response(html))
+        }
+        exports <<- exports + 1L
+        document <- xml2::read_xml(xml)
+        obs <- xml2::xml_find_all(document, "//*[local-name()='Obs']")
+        xml2::xml_remove(obs[if (exports == 1L) 2L else 1L])
+        if (exports > 1L) {
+            node <- xml2::xml_find_first(document, "//*[local-name()='Description']")
+            xml2::xml_set_text(node, "Changed area")
+        }
+        response(charToRaw(as.character(document)), type = "text/xml")
+    }
+    run <- function() {
+        fedstat_download("31074",
+            filters = list(Year = "*", Area = "First"),
+            cache_dir = path, max_nominal_cells_request = 1, request_pause = 0, verbose = FALSE
+        )
+    }
+    mock("VERB",
+        verb,
+        {
+            expect_error(run(), "fedstat_dictionary_changed")
+            m <- readRDS(file.path(path, "manifest.rds"))
+            stopifnot(sum(vapply(m$parts, function(p) p$status == "complete", logical(1))) == 1L)
+            m$dictionary <- NULL
+            saveRDS(m, file.path(path, "manifest.rds"))
+            expect_error(run(), "fedstat_dictionary_changed")
+            expect_error(fedstat_cleanup(path), pattern = "incomplete")
+        },
+        where = asNamespace("httr")
+    )
+})
+
+# Completion checks may fail transiently after saving every part. Resume checks
+# again without downloading data, then collect/cleanup become available.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    pages <- exports <- 0L
+    verb <- function(method, url, ...) {
+        if (method == "GET") {
+            pages <<- pages + 1L
+            if (pages == 2L) {
+                return(response("Unavailable", 503L))
+            }
+            return(response(html))
+        }
+        exports <<- exports + 1L
+        response(xml, type = "text/xml")
+    }
+    run <- function() {
+        fedstat_download("31074",
+            filters = "*", cache_dir = path,
+            request_pause = 0, retry_max_times = 1, verbose = FALSE
+        )
+    }
+    mock("VERB",
+        verb,
+        {
+            expect_error(run(), "fedstat_transient")
+            expect_error(fedstat_collect(path), pattern = "incomplete")
+            expect_error(fedstat_cleanup(path), pattern = "incomplete")
+            stopifnot(run()$complete, exports == 1L, nrow(fedstat_collect(path)) == 2L)
+        },
+        where = asNamespace("httr")
+    )
+})
+cat("Dictionary checkpoint and final-check recovery tests passed.\n")
+
+# Website IDs (1) and SDMX codes (001) differ: match explicit dimension/category
+# names, never numerical equality. A valid but unrequested category is rejected.
+local({
+    selected <- internal("fedstat_download_selection")(ids, list(Year = "*", Area = "First"))
+    parsed <- internal("fedstat_parse_sdmx")(xml, selection = selected)
+    stopifnot(nrow(parsed) == 2L)
+    wrong_part <- internal("fedstat_download_selection")(ids, list(Year = "*", Area = "Second"))
+    expect_error(internal("fedstat_parse_sdmx")(xml, selection = wrong_part), "fedstat_dictionary_changed")
+})
+cat("Export selection mapping tests passed.\n")

@@ -124,6 +124,7 @@ fedstat_console <- function(e) {
         SELECTION = "==> Filters ready. Starting the download.",
         DOWNLOAD = "==> Downloading the next part...",
         SAVED = paste0("  Saved ", number(e$rows), " rows in ", parts, progress, "."),
+        CHECK_METADATA = "  Checking that Fedstat has not changed the selected filters...",
         CHECK_EMPTY = "  Checking whether this part contains any observations...",
         EMPTY = "  No observations in this part. Continuing...",
         RETRY = switch(e$stage,
