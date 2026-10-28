@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenericData xmlns="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/message" xmlns:common="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/common" xmlns:compact="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/compact" xmlns:cross="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/cross" xmlns:generic="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/generic" xmlns:query="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/query" xmlns:structure="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/structure" xmlns:utility="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/utility" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.SDMX.org/resources/SDMXML/schemas/v1_0/message SDMXMessage.xsd">
+  <Header Id="singHead">
+    <ID>1857435005</ID>
+    <Test>false</Test>
+    <Truncated>false</Truncated>
+    <Prepared>2026-10-24T19:19:57</Prepared>
+    <Extracted>2026-10-24T19:19:57</Extracted>
+    <Sender id="UIS">
+      <Name xml:lang="en">Official statistics</Name>
+      <Name xml:lang="ru">Государственная статистика</Name>
+    </Sender>
+    <DataSetAgency>1</DataSetAgency>
+    <DataSetID>9300036</DataSetID>
+  </Header>
+  <CodeLists>
+    <structure:CodeList id="s_OKATO">
+      <structure:Name xml:lang="ru">Классификатор объектов административно-территориального деления (ОКАТО)</structure:Name>
+      <structure:Code value="05000000000">
+        <structure:Description xml:lang="ru">Приморский край</structure:Description>
+      </structure:Code>
+    </structure:CodeList>
+  </CodeLists>
+  <Description Id="signObj">
+    <Indicator id="37089" name="Валовое накопление основного капитала на территории субъектов Российской Федерации"/>
+  </Description>
+  <DataSet>
+    <generic:Series>
+      <generic:SeriesKey>
+        <generic:Value concept="s_OKATO" value="05000000000"/>
+      </generic:SeriesKey>
+      <generic:Attributes>
+        <generic:Value concept="EI" value="миллион рублей"/>
+        <generic:Value concept="PERIOD" value="значение показателя за год"/>
+      </generic:Attributes>
+      <generic:Obs>
+        <generic:Time>2010</generic:Time>
+        <generic:ObsValue value="211765"/>
+      </generic:Obs>
+    </generic:Series>
+    <generic:Series>
+      <generic:SeriesKey>
+        <generic:Value concept="s_OKATO" value="05000000000"/>
+      </generic:SeriesKey>
+      <generic:Attributes>
+        <generic:Value concept="EI" value="миллион рублей"/>
+        <generic:Value concept="PERIOD" value="значение показателя за год"/>
+      </generic:Attributes>
+      <generic:Obs>
+        <generic:Time>2011</generic:Time>
+        <generic:ObsValue value="312597,6"/>
+      </generic:Obs>
+    </generic:Series>
+  </DataSet>
+</GenericData>

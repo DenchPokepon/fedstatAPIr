@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenericData xmlns="http://www.SDMX.org/resources/SDMXML/schemas/v2_0/message"
+ xmlns:generic="http://www.SDMX.org/resources/SDMXML/schemas/v2_0/generic"
+ xmlns:structure="http://www.SDMX.org/resources/SDMXML/schemas/v2_0/structure">
+ <Header><ID>fixture</ID><Truncated>false</Truncated><Indicator id="31074"/></Header>
+ <CodeLists>
+  <structure:CodeList id="AREA"><structure:Name>Area</structure:Name>
+   <structure:Code value="001"><structure:Description>First</structure:Description></structure:Code>
+  </structure:CodeList>
+ </CodeLists>
+ <DataSet>
+  <generic:Series>
+   <generic:SeriesKey><generic:Value concept="AREA" value="001"/></generic:SeriesKey>
+   <generic:Obs><generic:Time>2024</generic:Time><generic:ObsValue value="123,4"/></generic:Obs>
+   <generic:Obs><generic:Time>2025</generic:Time><generic:ObsValue value="125.0"/></generic:Obs>
+  </generic:Series>
+ </DataSet>
+</GenericData>

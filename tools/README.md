@@ -1,0 +1,143 @@
+# Development checks
+
+Offline regression tests run during `R CMD check`. They use base R assertions and
+small fixtures, without a test framework or live Fedstat traffic.
+
+```sh
+R CMD build .
+R CMD check --as-cran fedstatAPIr_2.0.0.tar.gz
+```
+
+For a quicker iteration after installing the source:
+
+```sh
+R CMD INSTALL .
+Rscript tests/regression.R
+```
+
+Coverage includes metadata/session separation, HTTP configuration, typed errors,
+SDMX parsing, duplicate keys, bounded retries, token GET recovery, post-refresh
+redirect subdivision, cooldown recovery, Retry-After, time allowances,
+interruptions, log contents, checkpoint integrity and old flat-folder resume.
+Warnings are logged but retain normal R warning semantics. Default console output
+is short progress; `verbose = "detailed"` exposes technical events and `FALSE`
+hides updates. File logs remain detailed in every mode. Console output uses
+ordinary newline-delimited R messages without terminal control sequences.
+
+Offline coverage also includes bounded access cooldowns and refreshed tokens,
+false-positive HTML markers, immediate size warnings, repeated calls after
+interruptions and cleanup safety. Native RStudio/Windows UI checks remain manual.
+
+## Formatting
+
+Use [styler](https://styler.r-lib.org/) with the tidyverse style and four-space indentation:
+
+```r
+# Development tool only; not a package dependency.
+install.packages("styler")
+styler::style_pkg(indent_by = 4)
+styler::style_dir("tools", indent_by = 4)
+```
+
+## Cancellation on Windows
+
+Ctrl+C cancels the current run and retains saved parts. Callback-abort errors
+from older curl versions are treated as interrupts, without retries.
+`tools/prices.R` exits with status 130 after releasing the checkpoint lock.
+When sourced in interactive R it returns to the prompt without closing R; its
+warning option is restored on exit.
+
+R 4.3's Windows `bin/Rscript.exe` launcher can return to Command Prompt before
+its child R process has stopped. Use the executable under `bin/x64` directly
+(adjust the installation path):
+
+```bat
+"C:\Program Files\R\R-4.3.2\bin\x64\Rscript.exe" tools/prices.R ../fedstat-price-check
+```
+
+This avoids the extra launcher process. How quickly the current network call
+returns still depends on curl and the operating system; this is not a promise
+of immediate cancellation during every connection phase.
+
+## Tiny live check
+
+Opt-in only; do not add this to routine CI:
+
+```sh
+FEDSTAT_LIVE=1 Rscript tools/live.R ../fedstat-live-check
+```
+
+In Windows Command Prompt, first run `set FEDSTAT_LIVE=1`, then
+`Rscript tools/live.R ../fedstat-live-check`.
+
+This requests indicator 37089 for Primorsky Krai in 2010 and 2011. It compares an
+unsplit export with two one-cell parts, tests token reuse and checks that completed
+resume needs no network. Requests are sequential with 30-second pauses and a
+ten-minute batch allowance. The output folder contains the raw baseline and saved parts.
+A pass describes that indicator/selection at that time, not the whole API.
+
+## Price workload and diagnostic files
+
+```sh
+R CMD INSTALL .
+Rscript tools/prices.R ../fedstat-price-check
+```
+
+Defaults: indicator 31074, January 2024, all territories, goods and indicator
+types. Optional positional arguments are the cache directory, year and period label.
+This is one month, not the entire historical dataset. The script enables `preview_first = TRUE` to apply each part's filters to the website
+preview before SDMX export; set it to `FALSE` to compare direct exports.
+The script requires version
+2.0.0 or later, prints warnings immediately and saves session information.
+
+The default allowance is one hour per invocation, including requests, pauses and
+retries. There is no HTTP-count ceiling. `max_nominal_cells_request` controls partition
+size; raising it does not merge existing checkpoint partitions. The diagnostic log records the active size and time allowance. Console percentages
+measure completed nominal filter combinations, not elapsed time or observed rows.
+
+Requests have 30–60 second pauses, a 300-second timeout (shortened to remaining
+run time), a 20-second connection timeout and a 90-second low-speed limit.
+The downloader can recover after a cooldown and try smaller parts following
+repeated export rejection. It never resets the time allowance automatically.
+On expiry, repeat the same command to resume saved progress with a fresh hour.
+Local parsing, validation and saving may extend elapsed time. Do not change the
+selection while reusing its folder.
+
+Send `download.log` and `session-info.txt` from the output folder for diagnosis.
+Both append across runs. `download.log` is UTF-8 JSON Lines, with run IDs, UTC
+timestamps, request counts, saved/pending parts, HTTP stages, response sizes/times,
+nominal completion percentage, preview preparation, waits, token refreshes, split reasons, warnings and recovery/stop summaries. Headers,
+cookies, token values and response bodies are excluded. For checkpoint issues,
+`manifest.rds` may help; data shards are not needed initially.
+
+```r
+log <- jsonlite::stream_in(file("../fedstat-price-check/download.log"))
+```
+
+## Parser benchmark
+
+```sh
+Rscript tools/benchmark.R
+```
+
+The benchmark generates synthetic SDMX without network requests. Compare elapsed
+time and allocations on the same machine/R version. Lower allocation does not
+necessarily mean faster parsing. The real trimmed fixture
+`tests/fixtures/fedstat-37089.xml` covers Fedstat SDMX 1.0; the synthetic generic
+fixture covers namespaces, raw markers and validation cases.
+
+## README maintenance
+
+`README.Rmd` is the Russian source; its examples are plain fenced code, so rendering
+does not contact Fedstat. `README.md` contains the same body without the YAML header.
+`README.en.md` is the separate English guide. Keep the selection and defaults in
+both guides consistent. Technical migration notes remain in `MIGRATION.md`.
+
+## Empty Cartesian parts
+
+After an SDMX HTTP 302, the batch downloader confirms empty selections with an
+exact-selection preview. With `preview_first = FALSE`, this adds a
+preview request only after that redirect; with `TRUE`, the current preview is
+reused. Explicit zero observations complete the part as a checksummed zero-row
+RDS and record `empty_evidence` in the manifest. Malformed/contradictory responses
+and access refusals do not count as zero. Existing checkpoints resume unchanged.

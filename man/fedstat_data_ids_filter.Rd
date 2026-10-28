@@ -34,6 +34,9 @@ non matched \code{filter_value_title} in \code{filters} and \code{filter_value_t
 data.frame, filtered \code{data_ids}
 }
 \description{
+For advanced use. Most downloads should use \code{\link[=fedstat_download]{fedstat_download()}},
+which splits large selections, pauses between requests and saves progress.
+
 Filters indicator \code{data_ids} with given \code{filters}
 taking into account possible \code{filters} specification errors and default filters.
 
@@ -62,14 +65,14 @@ to compare the equality of \code{data_ids} and \code{filters}
 # filter the data_ids to get data for january of 2023
 # for all goods and services for Russian Federation
 data_ids_filtered <- fedstat_get_data_ids("31074") \%>\%
-  fedstat_data_ids_filter(
-    filters = list(
-      "Territory" = "Russian Federation",
-      "Year" = "2023",
-      "Period" = "January",
-      "Types of goods and services" = "*"
+    fedstat_data_ids_filter(
+        filters = list(
+            "Territory" = "Russian Federation",
+            "Year" = "2023",
+            "Period" = "January",
+            "Types of goods and services" = "*"
+        )
     )
-  )
 
 # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 }
