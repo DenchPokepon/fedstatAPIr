@@ -1,6 +1,9 @@
 #' Post data filters ids to fedstat.ru and download specified subset of data
 #'
-#' @description Creates a request body from `data_ids` and sends it to
+#' @description For advanced use. Most downloads should use [fedstat_download()],
+#'   which splits large selections, pauses between requests and saves progress.
+#'
+#'   Creates a request body from `data_ids` and sends it to
 #'   \code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}.
 #'   Gets an sdmx or excel with data in binary format.
 #'

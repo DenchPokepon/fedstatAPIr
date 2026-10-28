@@ -1,6 +1,15 @@
-#' Download subset of indicator data from fedstat.ru by specifying filters in JSON
+#' (Deprecated) Download indicator data from fedstat.ru in one request
 #'
-#' @description This function is a wrapper for the other functions of the package
+#' @description **Deprecated: use [fedstat_download()] and [fedstat_collect()].**
+#'   This function sends the whole selection to Fedstat as one request, with no
+#'   size limit, pauses or saved progress. Large selections are slow, often fail
+#'   and put heavy load on Fedstat. It is kept so that existing scripts keep
+#'   working, and warns on every call. Replace
+#'   `data <- fedstat_data_load_with_filters("31074", filters = filters)` with
+#'   `job <- fedstat_download("31074", filters = filters, cache_dir = "my-download")`
+#'   and `data <- fedstat_collect(job)`.
+#'
+#'   This function is a wrapper for the other functions of the package
 #'   to provide a simple one function API for fedstat.ru
 #'
 #'   There are two basic terms in this API: `filter_field` and `filter_value`
@@ -48,6 +57,7 @@
 #' @export
 #'
 #' @seealso \code{
+#'   \link{fedstat_download},
 #'   \link{fedstat_get_data_ids},
 #'   \link{fedstat_data_ids_filter},
 #'   \link{fedstat_post_data_ids_filtered},
@@ -79,6 +89,17 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            loading_steps_verbose = TRUE,
                                            return_type = c("data", "dictionary"),
                                            try_to_parse_ObsValue = TRUE) {
+    id <- tryCatch(fedstat_indicator_id(indicator_id), error = function(e) "<indicator code>")
+    warning(structure(
+        class = c("fedstat_deprecated", "deprecatedWarning", "warning", "condition"),
+        list(message = paste0(
+            "fedstat_data_load_with_filters() is deprecated. It sends your whole selection to Fedstat ",
+            "as one request: large selections are slow, often fail and overload Fedstat. ",
+            "Use fedstat_download() instead. It downloads in small parts and continues after interruptions:\n",
+            "  job <- fedstat_download(\"", id, "\", filters = <your filters>, cache_dir = \"my-download\")\n",
+            "  data <- fedstat_collect(job)"
+        ), call = NULL)
+    ))
     fedstat_positive(retry_max_times, "retry_max_times", integer = TRUE)
     data_ids <- NULL
     refreshed <- FALSE

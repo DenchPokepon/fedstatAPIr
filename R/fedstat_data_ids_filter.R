@@ -1,6 +1,9 @@
 #' Filters `data_ids` based on `filters` that are given in JSON format
 #'
-#' @description Filters indicator `data_ids` with given `filters`
+#' @description For advanced use. Most downloads should use [fedstat_download()],
+#'   which splits large selections, pauses between requests and saves progress.
+#'
+#'   Filters indicator `data_ids` with given `filters`
 #'   taking into account possible `filters` specification errors and default filters.
 #'
 #'   `filters` should use `filter_field_title` in names and `filter_value_title` in values as

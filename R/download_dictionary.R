@@ -76,18 +76,45 @@ fedstat_saved_dictionary <- function(manifest, path) {
     dictionary
 }
 
-# Use explicit dimension names and category labels to bridge the two code
-# systems where possible. Never guess a mapping for absent/ambiguous names.
-fedstat_check_requested_codes <- function(data, dictionary, selection) {
+# Website and SDMX labels can differ in case, spacing and HTML escaping.
+fedstat_label_norm <- function(x) {
+    x <- enc2utf8(as.character(x))
+    entities <- c("&quot;" = "\"", "&#39;" = "'", "&#039;" = "'", "&lt;" = "<", "&gt;" = ">", "&nbsp;" = " ", "&amp;" = "&")
+    for (entity in names(entities)) x <- gsub(entity, entities[[entity]], x, fixed = TRUE)
+    x <- gsub(intToUtf8(160L), " ", x, fixed = TRUE) # non-breaking space
+    tolower(trimws(gsub("[[:space:]]+", " ", x)))
+}
+
+# Website filter IDs and SDMX codes are different systems; bridge them by
+# explicit filter names and labels only, never by guessing. Stop only on
+# positive evidence: a label naming another, unrequested value of the same
+# filter. Labels that match nothing are returned for logging, not treated as errors.
+fedstat_check_requested_codes <- function(data, dictionary, selection, offered = selection) {
+    unmatched <- NULL
     for (id in unique(dictionary$field_id)) {
         entries <- dictionary[dictionary$field_id == id, , drop = FALSE]
         fields <- unique(selection$filter_field_id[
-            trimws(selection$filter_field_title) == trimws(entries$field_title[1L])
+            fedstat_label_norm(selection$filter_field_title) == fedstat_label_norm(entries$field_title[1L])
         ])
         if (length(fields) != 1L) next
-        allowed <- trimws(selection$filter_value_title[selection$filter_field_id == fields])
-        returned <- trimws(entries$value_title[match(data[[id]], entries$value_id)])
-        if (anyNA(returned) || any(!returned %in% allowed)) fedstat_dictionary_changed()
+        requested <- fedstat_label_norm(selection$filter_value_title[selection$filter_field_id == fields])
+        available <- fedstat_label_norm(offered$filter_value_title[offered$filter_field_id == fields])
+        labels <- entries$value_title[match(unique(data[[id]]), entries$value_id)]
+        returned <- fedstat_label_norm(labels)
+        other <- labels[returned %in% setdiff(available, requested)]
+        if (length(other)) {
+            fedstat_dictionary_changed(paste0(
+                "Fedstat returned data for values that were not requested (",
+                entries$field_title[1L], ": ", fedstat_list_values(other), "). ",
+                "This usually means Fedstat changed its filters."
+            ))
+        }
+        missing <- labels[!returned %in% available]
+        if (length(missing)) {
+            unmatched <- rbind(unmatched, data.frame(
+                field_title = entries$field_title[1L], value_title = missing, stringsAsFactors = FALSE
+            ))
+        }
     }
-    invisible(TRUE)
+    invisible(unmatched)
 }

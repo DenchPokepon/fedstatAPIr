@@ -156,11 +156,27 @@ mock(
         stopifnot(is.null(attr(data_ids, "fedstat_session")$token))
         xml
     }, mock(
-        "fedstat_backoff", function(...) 0,
-        stopifnot(nrow(fedstat_data_load_with_filters("31074",
-            filters = list(Year = "*", Area = "*"),
-            loading_steps_verbose = FALSE
-        )) == 2L)
+        "fedstat_backoff",
+        function(...) 0,
+        {
+            # The deprecated wrapper warns on every call with a copy-paste replacement,
+            # and otherwise behaves as before.
+            deprecation <- NULL
+            data <- withCallingHandlers(
+                fedstat_data_load_with_filters("31074",
+                    filters = list(Year = "*", Area = "*"),
+                    loading_steps_verbose = FALSE
+                ),
+                fedstat_deprecated = function(w) {
+                    deprecation <<- w
+                    invokeRestart("muffleWarning")
+                }
+            )
+            stopifnot(
+                nrow(data) == 2L, inherits(deprecation, "deprecatedWarning"),
+                grepl("fedstat_download(\"31074\"", conditionMessage(deprecation), fixed = TRUE)
+            )
+        }
     ))
 )
 stopifnot(gets == 1L, exports == 2L)
@@ -1307,7 +1323,7 @@ local({
         },
         {
             job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE)
-            stopifnot(job$complete, exports == 1L, identical(fedstat_collect(job), reference))
+            stopifnot(job$complete, exports == 1L, identical(fedstat_collect(job, try_to_parse_ObsValue = FALSE), reference))
         },
         where = asNamespace("httr")
     )
@@ -1664,8 +1680,54 @@ local({
     selected <- internal("fedstat_download_selection")(ids, list(Year = "*", Area = "First"))
     parsed <- internal("fedstat_parse_sdmx")(xml, selection = selected)
     stopifnot(nrow(parsed) == 2L)
+    stopifnot(is.null(attr(parsed, "unmatched_labels")))
     wrong_part <- internal("fedstat_download_selection")(ids, list(Year = "*", Area = "Second"))
-    expect_error(internal("fedstat_parse_sdmx")(xml, selection = wrong_part), "fedstat_dictionary_changed")
+    expect_error(
+        internal("fedstat_parse_sdmx")(xml, selection = wrong_part, offered = ids),
+        "fedstat_dictionary_changed",
+        pattern = "not requested \\(Area: First\\)"
+    )
+    # Case, spacing, non-breaking spaces and HTML escaping are formatting, not evidence.
+    stopifnot(identical(
+        internal("fedstat_label_norm")(c("  First  area ", "A &amp; B", "&quot;X&quot;")),
+        c("first area", "a & b", "\"x\"")
+    ))
+    styled <- charToRaw(sub("<structure:Name>Area</structure:Name>", "<structure:Name> AREA </structure:Name>",
+        sub(">First<", ">  FIRST <", rawToChar(xml), fixed = TRUE),
+        fixed = TRUE
+    ))
+    stopifnot(nrow(internal("fedstat_parse_sdmx")(styled, selection = selected, offered = ids)) == 2L)
+    expect_error(internal("fedstat_parse_sdmx")(styled, selection = wrong_part, offered = ids), "fedstat_dictionary_changed")
+    # A label matching no filter value is reported for the log and never stops the download.
+    other <- charToRaw(sub(">First<", ">First (revised wording)<", rawToChar(xml), fixed = TRUE))
+    for (part in list(selected, wrong_part)) {
+        parsed <- internal("fedstat_parse_sdmx")(other, selection = part, offered = ids)
+        stopifnot(nrow(parsed) == 2L, identical(attr(parsed, "unmatched_labels")$value_title, "First (revised wording)"))
+    }
+})
+
+# During a download, unmatched labels are logged once and the part is saved without them as attributes.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    other <- charToRaw(sub(">First<", ">First (revised wording)<", rawToChar(xml), fixed = TRUE))
+    mock("VERB",
+        function(method, url, ...) {
+            if (method == "GET") response(html) else response(other, type = "text/xml")
+        },
+        {
+            job <- fedstat_download("31074",
+                filters = list(Year = "*", Area = "First"), cache_dir = path,
+                request_pause = 0, verbose = FALSE
+            )
+        },
+        where = asNamespace("httr")
+    )
+    events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+    stopifnot(job$complete, sum(vapply(events, `[[`, "", "event") == "UNMAPPED_LABEL") == 1L)
+    m <- readRDS(file.path(path, "manifest.rds"))
+    part <- readRDS(file.path(path, m$parts[[1]]$file))
+    stopifnot(is.null(attr(part, "unmatched_labels")))
 })
 cat("Export selection mapping tests passed.\n")
 
@@ -1787,3 +1849,57 @@ local({
     )
 })
 cat("Splitting and outage recovery tests passed.\n")
+
+# Collected values are numbers by default; a non-number stops before any part is removed.
+local({
+    stopifnot(identical(internal("fedstat_numbers")(c("1,5", " 2 ", "", NA, "3.25")), c(1.5, 2, NA, NA, 3.25)))
+    for (marked in c(FALSE, TRUE)) {
+        path <- tempfile()
+        export <- if (marked) charToRaw(sub('value="123,4"', 'value="..."', rawToChar(xml), fixed = TRUE)) else xml
+        mock("VERB", function(method, url, ...) {
+            if (method == "GET") response(html) else response(export, type = "text/xml")
+        }, job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE),
+        where = asNamespace("httr")
+        )
+        if (marked) {
+            e <- expect_error(fedstat_collect(job, remove_parts = TRUE), pattern = "try_to_parse_ObsValue = FALSE")
+            stopifnot(grepl("\"...\"", conditionMessage(e), fixed = TRUE))
+            stopifnot(file.exists(file.path(path, "parts", paste0("part-", job$parts$part[1], ".rds"))))
+            stopifnot(identical(fedstat_collect(job, try_to_parse_ObsValue = FALSE)$ObsValue, c("...", "125.0")))
+        } else {
+            stopifnot(identical(fedstat_collect(job)$ObsValue, c(123.4, 125)))
+        }
+        expect_error(fedstat_collect(job, try_to_parse_ObsValue = NA), pattern = "try_to_parse_ObsValue must be TRUE or FALSE")
+        unlink(path, recursive = TRUE)
+    }
+})
+cat("Numeric collection tests passed.\n")
+
+# A folder in use names its owner and explains how to clear a lock left by a crash.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    with_batch(job <- fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE))
+    lock <- internal("fedstat_lock")(path, "fedstat_download()")
+    calls <- list(
+        function() fedstat_download("31074", filters = "*", cache_dir = path, verbose = FALSE),
+        function() fedstat_collect(job),
+        function() fedstat_cleanup(job)
+    )
+    for (call in calls) {
+        e <- expect_error(call(), pattern = "in use by another R session")
+        text <- conditionMessage(e)
+        stopifnot(
+            grepl("fedstat_download() started", text, fixed = TRUE),
+            grepl(paste("process", Sys.getpid()), text, fixed = TRUE),
+            grepl(normalizePath(lock, winslash = "/"), text, fixed = TRUE),
+            grepl("R crashed or was closed", text, fixed = TRUE)
+        )
+    }
+    # Locks from older versions have no readable owner record.
+    writeLines("old format", file.path(lock, "owner"))
+    stopifnot(grepl("in use by another R session. Wait", conditionMessage(expect_error(fedstat_collect(job))), fixed = TRUE))
+    unlink(lock, recursive = TRUE)
+    stopifnot(nrow(fedstat_collect(job)) == 4L)
+})
+cat("Folder lock message tests passed.\n")

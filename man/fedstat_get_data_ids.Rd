@@ -38,6 +38,9 @@ columnObjectIds (filters in columns), filterObjectIds (hidden filters for all da
 }
 }
 \description{
+For advanced use. Most downloads should use \code{\link[=fedstat_download]{fedstat_download()}},
+which splits large selections, pauses between requests and saves progress.
+
 To query data from fedstat we need to POST some filters in form of filter numeric identificators.
 Most filters don't have some rule from which their ids can be generated based on
 filters titles and values. It seems like these ids are just indexes in the fedstat inner database.

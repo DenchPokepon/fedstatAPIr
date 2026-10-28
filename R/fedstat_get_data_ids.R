@@ -1,6 +1,8 @@
 #' Get data filters ids from fedstat.ru indicator web page
 #'
-#' @description
+#' @description For advanced use. Most downloads should use [fedstat_download()],
+#'   which splits large selections, pauses between requests and saves progress.
+#'
 #' To query data from fedstat we need to POST some filters in form of filter numeric identificators.
 #' Most filters don't have some rule from which their ids can be generated based on
 #' filters titles and values. It seems like these ids are just indexes in the fedstat inner database.

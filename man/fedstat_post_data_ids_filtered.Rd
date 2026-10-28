@@ -33,6 +33,9 @@ about the processing of the request}
 raw bytes (sdmx or excel)
 }
 \description{
+For advanced use. Most downloads should use \code{\link[=fedstat_download]{fedstat_download()}},
+which splits large selections, pauses between requests and saves progress.
+
 Creates a request body from \code{data_ids} and sends it to
 \code{https://www.fedstat.ru/indicator/downloadData.do?format=\{format\}}.
 Gets an sdmx or excel with data in binary format.
@@ -59,15 +62,15 @@ excel raw bytes can be passed to \code{writeBin} to create an xls file
 # for all goods and services for Russian Federation
 # POST filters and download data in sdmx format
 data <- fedstat_get_data_ids("31074") \%>\%
-  fedstat_data_ids_filter(
-    filters = list(
-      "Territory" = "Russian Federation",
-      "Year" = "2023",
-      "Period" = "January",
-      "Types of goods and services" = "*"
-    )
-  ) \%>\%
-  fedstat_post_data_ids_filtered()
+    fedstat_data_ids_filter(
+        filters = list(
+            "Territory" = "Russian Federation",
+            "Year" = "2023",
+            "Period" = "January",
+            "Types of goods and services" = "*"
+        )
+    ) \%>\%
+    fedstat_post_data_ids_filtered()
 
 # Not actual filter field titles and filter values titles because of ASCII requirement for CRAN
 }

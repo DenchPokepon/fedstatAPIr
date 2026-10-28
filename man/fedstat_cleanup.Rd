@@ -2,24 +2,25 @@
 % Please edit documentation in R/download_cleanup.R
 \name{fedstat_cleanup}
 \alias{fedstat_cleanup}
-\title{Remove the saved parts of a completed download}
+\title{Free the disk space used by a finished download}
 \usage{
 fedstat_cleanup(x)
 }
 \arguments{
-\item{x}{A \code{\link[=fedstat_download]{fedstat_download()}} result or its directory path.}
+\item{x}{A \code{\link[=fedstat_download]{fedstat_download()}} result or its folder.}
 }
 \value{
-Invisibly, the download directory. Only files named in the manifest
-are removed; the manifest, diagnostic log and unrelated files remain.
+Invisibly, the download folder. Only the part files listed in the
+manifest are removed; the manifest, diagnostic log and any other files stay.
 }
 \description{
-Remove the saved parts of a completed download
+Deletes the saved parts of a complete \code{\link[=fedstat_download]{fedstat_download()}}.
+Save the table from \code{\link[=fedstat_collect]{fedstat_collect()}} first: after cleanup the download
+cannot be collected or continued again.
 }
 \details{
-Save the collected table before calling this function. The download
-cannot be resumed or collected again after cleanup. Incomplete, changed or
-actively used downloads are not cleaned. Cleanup can be repeated if interrupted.
+Incomplete, changed or actively used downloads are not cleaned.
+Cleanup can be repeated if it was interrupted.
 }
 \examples{
 \dontrun{
@@ -27,4 +28,7 @@ data <- fedstat_collect("cpi-download")
 saveRDS(data, "cpi.rds")
 fedstat_cleanup("cpi-download")
 }
+}
+\seealso{
+\code{\link[=fedstat_download]{fedstat_download()}}, \code{\link[=fedstat_collect]{fedstat_collect()}}
 }

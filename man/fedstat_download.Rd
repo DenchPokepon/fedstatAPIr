@@ -2,7 +2,7 @@
 % Please edit documentation in R/fedstat_download.R
 \name{fedstat_download}
 \alias{fedstat_download}
-\title{Download a large selection in resumable, bounded parts}
+\title{Download Fedstat data in small parts that survive interruptions}
 \usage{
 fedstat_download(
   indicator_id,
@@ -26,127 +26,149 @@ fedstat_download(
 )
 }
 \arguments{
-\item{indicator_id}{One nonempty indicator code from its page address; kept
-as text. Numeric input is accepted for convenience.}
+\item{indicator_id}{Indicator code from its page address, for example \code{"31074"}
+for \verb{https://www.fedstat.ru/indicator/31074}.}
 
-\item{...}{HTTP configuration passed to metadata GET, token GET and export POST,
-for example \code{httr::user_agent()} or \code{httr::config(connecttimeout = 20)}.}
+\item{...}{For advanced users: httr settings applied to every request, for
+example \code{httr::user_agent("my-project")} or \code{httr::config(connecttimeout = 20)}.
+Any other unnamed or unknown argument is an error.}
 
-\item{filters}{A named list, as in \code{\link[=fedstat_data_ids_filter]{fedstat_data_ids_filter()}}. Use the single
-string \code{"*"} to explicitly select every value of every dimension.}
+\item{filters}{A named list: filter names and the values to download, both in
+Russian, as shown on Fedstat. \code{"*"} selects every value of a filter. Every
+filter with more than one value must be listed. Case and extra spaces are
+ignored. The single string \code{"*"} instead of a list selects everything.}
 
-\item{cache_dir}{Persistent working directory for the manifest and verified parts. Use one directory
-per selection. This is a cache for resumable parts, not the final table;
-it is retained until explicit cleanup. New jobs store data in a \verb{parts/} subdirectory; old flat jobs
-resume unchanged. Only one process may write to it at a time.}
+\item{cache_dir}{Folder for the saved parts, created if needed. Use one folder
+per download and keep it until you have collected and saved the table.}
 
-\item{max_nominal_cells_request}{Maximum product of selected dimension cardinalities per
-initial request. A conservative size proxy, not an expected row count or a
-server guarantee. Default: 100,000. Values above 250,000 warn because their
-reliability depends on the indicator and service load. Failed exports can
-be subdivided further.}
+\item{max_nominal_cells_request}{Largest number of filter combinations in one
+request. Default 100,000. Smaller requests are usually more reliable but the
+download needs more of them. Values above 250,000 give a warning.}
 
-\item{token_policy}{\code{"reuse"} reuses a token until rejection; \code{"refresh"} gets
-a fresh token before each subsequent export. Metadata is reused either way.}
+\item{token_policy}{\code{"reuse"} (default) keeps the download session's token until
+Fedstat rejects it; \code{"refresh"} gets a new one before every request, which costs
+an extra page request each time.}
 
-\item{preview_first}{If \code{TRUE}, submit each part's filters to Fedstat's browser
-preview (\code{dataGrid.do}) before each export attempt, using the same session.
-Default \code{FALSE}: this adds an HTTP request and server work per attempt.
-Nonempty data come from SDMX. An export HTTP 302 with an explicitly empty
-preview confirms a zero-row part. Without preparation, redirects trigger
-a preview check automatically. Both requests
-share pacing, timeout configuration and the invocation's time allowance.}
+\item{preview_first}{If \code{TRUE}, ask Fedstat to show each part's table first,
+as its website does when you press "Apply", and then download it. Fedstat
+sometimes only returns data after this step. Default \code{FALSE}: it adds a
+request per attempt and can roughly double the download time.}
 
-\item{timeout_seconds}{Maximum duration of each HTTP request, including transfer.}
+\item{timeout_seconds}{Longest wait for one request, in seconds.}
 
-\item{retry_max_times}{Maximum data attempts per part before subdivision or
-cooldown, including the first. With \code{preview_first = TRUE}, each attempt
-prepares the preview before exporting. Metadata and token GETs have their own attempts;
-all attempts share the invocation's time allowance.}
+\item{retry_max_times}{Attempts per part before it is split or the download
+pauses, including the first.}
 
-\item{request_pause}{Seconds to wait between HTTP requests: a number or a
-two-number range for random pauses. Retry delays and Retry-After can extend it.}
+\item{request_pause}{Seconds between requests: one number, or two numbers for a
+random pause in that range.}
 
-\item{max_depth}{Maximum levels of subdivision below the original selection.}
+\item{max_depth}{How many times a part may be split again.}
 
-\item{max_failures}{Pause recovery after this many consecutive transient or
-ambiguous export/preview failures; this limits subdivision during an outage.}
+\item{max_failures}{Failed data requests in a row before the download pauses to
+let Fedstat recover.}
 
-\item{verbose}{Console detail: \code{TRUE} or \code{"progress"} for short updates (default),
-\code{FALSE} or \code{"quiet"} to hide updates, \code{"detailed"} for diagnostic events.
-R warnings and errors remain visible in every mode.}
+\item{verbose}{\code{TRUE} (default) shows short progress messages, \code{FALSE} hides
+them, \code{"detailed"} shows every event. Warnings and errors are always shown.}
 
-\item{log_file}{Append-only UTF-8 JSON Lines diagnostic log. Defaults to
-\code{download.log} inside \code{cache_dir}; \code{NULL} disables file logging. File logging is
-independent of \code{verbose}. Logs contain request stages, timings, counts and
-recovery decisions, never HTTP headers, cookies, tokens or response bodies.}
+\item{log_file}{Diagnostic log, by default \code{download.log} inside \code{cache_dir};
+\code{NULL} turns it off. Attach it when reporting a problem.}
 
-\item{recovery_max_times}{Maximum automatic cooldown/recovery cycles without
-a successfully saved part. Use zero to stop after ordinary retries.}
+\item{recovery_max_times}{How many recovery pauses are allowed since the last
+saved part before the run stops. \code{0} stops after ordinary retries.}
 
-\item{recovery_pause}{Initial cooldown in seconds, doubled on each consecutive
-recovery (up to 64 times this value). Request pauses and Retry-After still apply.}
+\item{recovery_pause}{First recovery pause in seconds; it doubles each time.}
 
-\item{total_time_limit_seconds}{Time allowance for this invocation, in seconds;
-defaults to 3600 (one hour). Includes requests, pauses and local processing.
-Requests are capped by the remaining time. Local validation and saving finish
-safely before stopping, so these operations can extend the elapsed time.}
+\item{total_time_limit_seconds}{Time for this run in seconds, including
+pauses; default one hour. Run the same call again to continue.}
 
-\item{access_pause}{Seconds to wait after a suspected access check or refusal;
-defaults to 300 (five minutes). Repeated refusals double this pause and share
-\code{recovery_max_times} and the overall time allowance. No challenge is bypassed.}
+\item{access_pause}{Seconds to wait when Fedstat seems to check or refuse
+access; default five minutes, doubling if it happens again. No check is
+bypassed.}
 }
 \value{
-A \code{fedstat_download} result with directory, completion status and part
-summary. Data stay on disk; use \code{\link[=fedstat_collect]{fedstat_collect()}} to load them. On failure,
-an error is raised and verified progress is retained for the next call.
+A \code{fedstat_download} object: the folder (\code{path}), whether the download
+is \code{complete}, a table of \code{parts}, and the values Fedstat stopped offering
+during the download (\code{unavailable}). The data stay on disk; use
+\code{\link[=fedstat_collect]{fedstat_collect()}} to load them. If the run stops, an error is raised and
+saved parts are kept for the next run.
 }
 \description{
-Resolves filters once, partitions large selections and saves
-validated RDS parts. Requests are sequential. Repeating the same call resumes
-saved progress. No optional storage packages are required.
+Downloads one indicator for the filter values you choose and
+saves it piece by piece in \code{cache_dir}. Fedstat builds every combination of
+the selected values (years x months x territories x products ...), so a large
+selection is split into parts of at most \code{max_nominal_cells_request}
+combinations. Parts are requested one at a time, with pauses in between.
+This keeps the load on Fedstat light and makes long downloads finish.
+
+If a run stops (time is up, Fedstat is unavailable, R was closed), run the
+same call again: saved parts are skipped. When the download is complete,
+\code{\link[=fedstat_collect]{fedstat_collect()}} returns the table.
 }
-\details{
-Wildcards are frozen when the manifest is created. On resume, added
-values do not expand that selection. Tokens are never saved. Delete a
-stale \code{.lock} directory only after confirming no process is using the job.
-
-Filter definitions are checked at the start of every run, on token renewal
-and before final completion. IDs identify what is requested: an added or
-removed filter field stops the job. A selected value that Fedstat no longer
-offers is left out of unfinished parts with a warning and listed in the
-result's \code{unavailable} element. Renamed values (same ID or code) continue
-with a warning; \code{\link[=fedstat_collect]{fedstat_collect()}} uses the newest label for each code.
-Requests follow the page's current row/column layout. An export that
-contradicts its own code lists is retried as a damaged response. These checks
-cannot detect a change in meaning that keeps the same IDs and labels.
-
-Defaults are deliberately conservative: 100,000 filter combinations, 30--60
-seconds between requests, two attempts per part, and one hour per invocation.
-Three additional cooldown/recovery cycles are allowed without a
-successfully saved part, initially waiting 60 seconds and doubling each time.
-A part over the size limit is split along its largest filter into the fewest
-groups that fit. After failures a part is halved only when its size is the
-likely cause: request timeouts, gateway timeouts (HTTP 504), truncated
-exports, or redirects that persist after a token repair. Dropped or refused
-connections pause instead. Splits made after failures are undone on the next
-run if none of their parts was saved. An export redirect needs a preview
-check to confirm no observations. There is no universal safe request size. A
-timeout may leave the server computing the original export, so retries also wait.
-
-Completion means all planned parts were received and validated, not that
-Fedstat published every possible observation. A long download is not an
-atomic snapshot of the upstream database. Parts preserve raw ObsValue strings.
-Before marking completion, checksums and observation keys are checked across
-all parts using temporary disk buckets. This needs additional free disk space
-for keys and memory for a key bucket, but never combines the full dataset.
-Already validated downloads can be opened again without network access.
-Resume tolerates reordered filters/values, case/whitespace differences,
-numeric versus character labels and repeated identical values.
+\section{Resuming}{
+ Run the same call with the same \code{filters} and \code{cache_dir}.
+Filters may be reordered or differ in case and spacing. A different
+selection needs a different folder. \code{"*"} means the values offered when the
+download started: values Fedstat adds later are not included. Each run has its
+own time allowance; saving a part that has already arrived may run slightly
+over it. Only one R session can use a folder at a time. If R crashed, the
+folder can stay marked as in use; the error message says how to clear it.
 }
+
+\section{Request size}{
+ Size is counted in filter combinations, the product of
+the number of selected values of every filter, not in rows: many
+combinations can be empty. A part over the limit is split along its largest
+filter into the fewest groups that fit. There is no universally safe size;
+it depends on the indicator and on how busy Fedstat is.
+}
+
+\section{Reliability}{
+ Requests are sequential and paced. A failed request is
+retried after a pause. A part is halved only when its size is the likely
+cause: a request timeout, a gateway timeout (HTTP 504), an export marked as
+truncated, or a refusal that persists after renewing the session. Dropped or
+refused connections, server errors and rate limits lead to a recovery pause
+instead. Splits made after failures are undone on the next run if none of
+their parts was saved. Fedstat answers some empty selections with a redirect;
+a part counts as empty only when Fedstat's table preview confirms zero rows.
+}
+
+\section{When Fedstat changes its filters}{
+ The selected filters are compared
+with the indicator page at the start of every run, when the session is
+renewed and before completion. Filter and value IDs identify what is
+requested. If Fedstat adds or removes a whole filter, the download stops:
+start again in a new folder. A selected value that Fedstat no longer offers
+is left out of unfinished parts, with a warning, and listed in \code{unavailable}.
+Renamed values continue with a warning, and \code{\link[=fedstat_collect]{fedstat_collect()}} uses the
+newest name for each code. A changed row/column layout on the website is
+ignored. If an export contains values that were not requested, the download
+stops. A change in meaning that keeps the same IDs and names cannot be
+detected.
+}
+
+\section{Completion}{
+ A download is complete when every part has been received
+and checked, and the saved parts together contain no duplicate
+observations. This check needs some free disk space in \code{cache_dir} but never
+loads the whole table. A completed download opens again without network
+access. A long download is not a snapshot of one moment: Fedstat may publish
+revisions while it runs. Saved parts keep values exactly as Fedstat sent
+them.
+}
+
+\section{Diagnostic log}{
+ \code{download.log} is a JSON Lines file with request
+stages, timings, counts and recovery decisions. It never contains HTTP
+headers, cookies, tokens or response bodies.
+}
+
 \examples{
 \dontrun{
 job <- fedstat_download("31074", filters = "*", cache_dir = "cpi-download")
 data <- fedstat_collect(job)
 }
+}
+\seealso{
+\code{\link[=fedstat_collect]{fedstat_collect()}}, \code{\link[=fedstat_cleanup]{fedstat_cleanup()}}
 }

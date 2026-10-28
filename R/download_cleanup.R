@@ -1,11 +1,14 @@
-#' Remove the saved parts of a completed download
+#' Free the disk space used by a finished download
 #'
-#' @param x A [fedstat_download()] result or its directory path.
-#' @return Invisibly, the download directory. Only files named in the manifest
-#'   are removed; the manifest, diagnostic log and unrelated files remain.
-#' @details Save the collected table before calling this function. The download
-#'   cannot be resumed or collected again after cleanup. Incomplete, changed or
-#'   actively used downloads are not cleaned. Cleanup can be repeated if interrupted.
+#' @description Deletes the saved parts of a complete [fedstat_download()].
+#'   Save the table from [fedstat_collect()] first: after cleanup the download
+#'   cannot be collected or continued again.
+#' @param x A [fedstat_download()] result or its folder.
+#' @return Invisibly, the download folder. Only the part files listed in the
+#'   manifest are removed; the manifest, diagnostic log and any other files stay.
+#' @details Incomplete, changed or actively used downloads are not cleaned.
+#'   Cleanup can be repeated if it was interrupted.
+#' @seealso [fedstat_download()], [fedstat_collect()]
 #' @export
 #' @examples
 #' \dontrun{
@@ -15,7 +18,7 @@
 #' }
 fedstat_cleanup <- function(x) {
     path <- fedstat_job_path(x)
-    lock <- fedstat_collect_lock(path)
+    lock <- fedstat_lock(path, "fedstat_cleanup()")
     on.exit(unlink(lock, recursive = TRUE), add = TRUE)
     manifest <- readRDS(file.path(path, "manifest.rds"))
     if (!identical(manifest$version, 1L)) stop("Unsupported download manifest version.", call. = FALSE)
@@ -37,11 +40,30 @@ fedstat_job_path <- function(x) {
     normalizePath(path, winslash = "/", mustWork = TRUE)
 }
 
-fedstat_collect_lock <- function(path) {
+# One process at a time per folder. The owner record lets a user recognize a
+# lock left behind by R crashing or being closed; it is never removed automatically.
+fedstat_lock <- function(path, operation) {
     lock <- file.path(path, ".lock")
     if (!dir.create(lock, showWarnings = FALSE)) {
-        stop("This download folder is in use. Wait for the other operation to finish.", call. = FALSE)
+        owner <- tryCatch(suppressWarnings(read.dcf(file.path(lock, "owner")))[1L, ], error = function(e) NULL)
+        who <- if (all(c("Operation", "Computer", "Process", "Started") %in% names(owner))) {
+            paste0(
+                " (", owner[["Operation"]], " started ", owner[["Started"]], " on ",
+                owner[["Computer"]], ", process ", owner[["Process"]], ")"
+            )
+        } else {
+            ""
+        }
+        stop("This download folder is in use by another R session", who, ". ",
+            "Wait for it to finish. If no R session is working with this folder (for example, R crashed or was closed), ",
+            "delete the folder ", normalizePath(lock, winslash = "/", mustWork = FALSE), " and try again.",
+            call. = FALSE
+        )
     }
+    tryCatch(write.dcf(data.frame(
+        Operation = operation, Computer = Sys.info()[["nodename"]], Process = Sys.getpid(),
+        Started = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+    ), file.path(lock, "owner")), error = function(e) NULL)
     lock
 }
 

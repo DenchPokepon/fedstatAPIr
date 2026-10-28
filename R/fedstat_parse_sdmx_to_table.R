@@ -1,6 +1,9 @@
 #' Parse sdmx raw bytes to data.frame
 #'
-#' @description Parses sdmx raw bytes received in response to POST request.
+#' @description For advanced use. Most downloads should use [fedstat_download()],
+#'   which splits large selections, pauses between requests and saves progress.
+#'
+#'   Parses sdmx raw bytes received in response to POST request.
 #' This function is a wrapper around `readsdmx::read_sdmx`,
 #' in addition to reading data, automatically adds columns with values from lookup tables.
 #' Can also return full data codes dictionary for the indicator
@@ -41,7 +44,8 @@ fedstat_parse_sdmx_to_table <- function(data_raw, return_type = c("data", "dicti
 }
 
 fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
-                               try_to_parse_ObsValue = TRUE, indicator_id = NULL, check_dictionary = NULL, selection = NULL) {
+                               try_to_parse_ObsValue = TRUE, indicator_id = NULL, check_dictionary = NULL, selection = NULL,
+                               offered = selection) {
     # workaround for `:=` and CMD check
     field_id <- ObsValue <- NULL
 
@@ -151,7 +155,7 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
             if (anyNA(data[[id]]) || any(!data[[id]] %in% allowed)) fedstat_inconsistent_export()
         }
     }
-    if (!is.null(selection)) fedstat_check_requested_codes(data, codelist_tbl, selection)
+    unmatched <- if (!is.null(selection)) fedstat_check_requested_codes(data, codelist_tbl, selection, offered)
     data_res <- lapply(field_ids, function(x) {
         codelist_tbl[field_id == x][
             ,
@@ -177,5 +181,7 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
         data_res[, ObsValue := parsed]
     }
 
-    return(as.data.frame(data_res))
+    data_res <- as.data.frame(data_res)
+    attr(data_res, "unmatched_labels") <- unmatched
+    data_res
 }
