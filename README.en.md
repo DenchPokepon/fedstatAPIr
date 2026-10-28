@@ -2,184 +2,194 @@
 
 [Русская версия](README.md)
 
-Download [Fedstat / EMISS](https://www.fedstat.ru) statistics into R: choose an
-indicator, years and territories, then collect a table for your research.
-This is an unofficial client.
+An R package that downloads statistics from [Fedstat / EMISS](https://www.fedstat.ru),
+the Russian official statistics portal: choose an indicator and filters, get a
+table. Saves you ⏳ and nerves 😡. This is an unofficial client.
 
-> **Access from outside Russia:** use a VPN with a server in Russia to access
-> Fedstat. Connections from some CIS countries may also work. If you already
-> have a Russian IP address, a VPN is not needed.
+> **Access:** Fedstat may only open from Russia and some CIS countries. If
+> www.fedstat.ru does not open in your browser, the package can't reach it
+> either; you need an internet connection with a Russian address.
 
 ## Install
-
-From CRAN:
 
 ```r
 install.packages("fedstatAPIr")
 ```
 
-Or from GitHub:
+The latest version from GitHub:
 
 ```r
-# install.packages("remotes") # If remotes is not installed yet
+# install.packages("remotes") # if remotes is not installed yet
 remotes::install_github("DenchPokepon/fedstatAPIr")
 ```
 
-## Why download in parts?
+## Quick example
 
-Fedstat can be slow or interrupt a download. Filters also multiply: 20 years ×
-12 months × 90 territories × 1,000 products means 21.6 million possible
-combinations. Many may have no observations, but the request can still be costly.
-
-`fedstat_download()` requests smaller parts, pauses between requests and retries
-failures. It saves completed parts so an interruption does not mean starting over.
-This makes downloads easier to finish and reduces load on a shared service.
-
-## Download data
-
-Get [consumer price indices, indicator 31074](https://www.fedstat.ru/indicator/31074),
+Download [consumer price indices (indicator 31074)](https://www.fedstat.ru/indicator/31074)
 for January 2024 in Primorsky Krai: all goods and services, compared with the
-previous month and with the same period of the previous year.
+previous month and with January of the previous year.
 
-Take the indicator code from its page address. **Keep filter names and values
-in Russian**, as shown on Fedstat; the English comments below explain them.
-Copy the whole example into R or RStudio and run it:
+The indicator code is in the page address. **Write filter names and values in
+Russian**, exactly as Fedstat shows them; the comments translate them. Copy the
+whole example into R or RStudio and run it:
 
 ```r
 library(fedstatAPIr)
 
-# Choose the data
 filters <- list(
     "Год" = "2024", # Year
-    "Период" = "Январь", # January
+    "Период" = "Январь", # Period: January
     # Territory: Primorsky Krai
     "Классификатор объектов административно-территориального деления (ОКАТО)" = "Приморский край",
-    "Виды показателя" = c(
-        "К предыдущему месяцу", # Compared with the previous month
-        "К соответствующему периоду предыдущего года" # Same period last year
+    "Виды показателя" = c( # Index type
+        "К предыдущему месяцу", # vs previous month
+        "К соответствующему периоду предыдущего года" # vs same period last year
     ),
-    "Виды товаров и услуг" = "*" # All goods and services
+    "Виды товаров и услуг" = "*" # Goods and services: "*" means all values
 )
 
-# Download: https://www.fedstat.ru/indicator/31074
 job <- fedstat_download(
-    indicator_id = "31074", # Consumer price indices
+    indicator_id = "31074",
     filters = filters,
-    cache_dir = "cpi-download" # Working folder for parts; keeps progress after a failure
+    cache_dir = "cpi-download" # folder for the downloaded parts
 )
-
-data <- fedstat_collect(job) # Combine the parts into your table
-View(data)                   # Open the table in RStudio
+data <- fedstat_collect(job) # your table
 ```
 
-Your table for analysis is `data`. The working folder `cpi-download` is created
-automatically in R's current folder (usually the project folder in an RStudio
-project). You can instead use a full path such as `"G:/research/cpi-download"`.
+You get a table `data` with 1,500 rows: 750 goods and services × 2 index types.
+The first rows of the main columns (real Fedstat data):
 
-Use `c("2023", "2024")` for two years. `"*"` selects all values of a field.
-If you omit a field with multiple values, the package names it in the error.
-Case and extra whitespace are ignored.
+```r
+head(data[c("s_grtov", "s_POK", "ObsValue")], 5)
+#>                              s_grtov                                       s_POK ObsValue
+#> 1                Все товары и услуги                        К предыдущему месяцу   100.72
+#> 2                Все товары и услуги К соответствующему периоду предыдущего года   109.31
+#> 3                         Все товары                        К предыдущему месяцу   100.87
+#> 4                         Все товары К соответствующему периоду предыдущего года   109.81
+#> 5 Базовый индекс потребительских цен                        К предыдущему месяцу   100.81
+```
 
-The indicator values are in `ObsValue`. They are stored as text to preserve
-decimal commas and source markers such as `...`.
-Columns ending in `_code` contain classification codes.
+* `ObsValue` holds the values, as numbers.
+* Fedstat names the other columns with its own codes: here `s_grtov` is goods and
+  services, `s_POK` the index type, `s_OKATO` the territory. `Time` is the year,
+  `PERIOD` the period, `EI` the unit. Columns ending in `_code` hold
+  classification codes.
+* The folder `cpi-download` is created in R's current folder (the project folder
+  in an RStudio project). A full path such as `"G:/research/cpi-download"` works too.
 
-## Resume a download
+About filters:
 
-**Each run has one hour by default**, including pauses and retries. If time runs
-out or the connection fails, repeat the call with the same filters and `cache_dir`,
-then run `fedstat_collect(job)`. After restarting R, run the whole example again
-to restore the filters; already downloaded parts will be skipped.
+* several values go in `c()`: `"Год" = c("2023", "2024")`;
+* `"*"` selects every value of a filter;
+* every filter with more than one value on the website must be listed. If you
+  miss one, the error names it;
+* case and extra spaces don't matter.
 
-Each run gets a fresh hour. Validating and saving an already received part may
-take a little extra time before stopping. See below for how to allow more time.
+## Why download in parts? 🧩
 
-If Fedstat renames or stops offering some selected values during a download,
-the package warns you and continues. Only if Fedstat adds or removes a whole
-filter does it stop; then start a new download in another working folder.
+Fedstat builds a table from every combination of the values you choose.
+20 years × 12 months × 90 regions × 1,000 products is 21.6 million combinations.
+Even when most are empty, Fedstat has to check each one. Such requests often hang
+or fail, and they slow the site down for everyone else.
 
-Keep the working folder until the download finishes. Use a different folder for
-a different selection. You can reopen a completed download later:
+`fedstat_download()` cuts your request into small parts, pauses between them and
+saves every finished part to disk. Fedstat gets a light, steady load; you get a
+download that finishes and continues where it stopped.
+
+The example above is about 2,200 combinations: a single request. Parts matter for
+bigger selections: by default a part has up to 100,000 combinations, with a
+30–60 second pause between requests.
+
+## If the download stops 🔁
+
+Run the same code again, with the same filters and the same `cache_dir`. Finished
+parts are skipped and only the rest is downloaded. This works after restarting R
+or your computer, too.
+
+Each run has one hour, including pauses. To allow two hours, add
+`total_time_limit_seconds = 7200` to the `fedstat_download()` call.
+
+The percentage in the messages counts processed combinations, not time remaining.
+
+You can reopen a finished download later, even offline:
 
 ```r
 data <- fedstat_collect("cpi-download")
 ```
 
-The percentage measures completed filter combinations, not time remaining.
-Different parts contain different amounts of data and take different times.
+One folder per selection: use another `cache_dir` for other filters.
 
-## If exports keep failing
+## What you see → what to do
 
-Try the same download with preparation enabled, keeping the filters and folder:
+Find the start of the message in the table.
 
-```r
-job <- fedstat_download(
-    indicator_id = "31074",
-    filters = filters,
-    cache_dir = "cpi-download",
-    preview_first = TRUE # The package applies the filters before downloading
-)
-data <- fedstat_collect(job)
-```
+| Message | What happened | What to do |
+| --- | --- | --- |
+| `Download time limit reached` | The run used its hour | Run the same code again |
+| `Automatic recovery stopped` | Fedstat isn't responding or keeps returning errors | Wait an hour or two, then run the same code again |
+| `Fedstat may be checking or restricting access`, `Fedstat refused access` | Fedstat is limiting access | The package waits by itself. If the download stopped, check that www.fedstat.ru opens in your browser and try later |
+| `This download folder is in use by another R session` | Another R session is using the folder | Wait for it. If R crashed, delete the `.lock` folder; the message gives its path |
+| `Fedstat changed the filters`, `Fedstat returned data for values that were not requested` | Fedstat changed the indicator's filters | Start again with a new `cache_dir` |
+| `Fedstat renamed some values`, `Fedstat no longer offers some of the values you selected` | Fedstat renamed or removed some values | Nothing: the download continues. `print(job)` lists removed values |
+| `Some ObsValue values are not numbers` | The data contain notes instead of numbers | `fedstat_collect(job, try_to_parse_ObsValue = FALSE)` returns the values as text |
+| `Unknown argument` | A setting name is misspelled | Check the spelling in `?fedstat_download` |
 
-Sometimes Fedstat only returns an export after a preliminary table request,
-like pressing Apply on its website. This option follows that sequence before
-each export attempt. Fedstat's behavior changes: it may help at some times and
-make no difference at others.
+**Parts keep failing?** Add `preview_first = TRUE` to the call. Before each part,
+the package then asks Fedstat to show the table first, like pressing "Apply" on
+the website, and only then downloads it. Sometimes Fedstat only returns data this
+way. The download takes about twice as long. You can switch it on in the middle
+of a download, in the same folder.
 
-The default is `FALSE`. Enabling it adds a second data request per attempt and
-may roughly double download time, including pauses; actual timing depends on
-the server. You can enable it while resuming the same folder.
+## Big downloads
 
-The package checks parts with no observations and continues without adding rows.
+* `filters = "*"` instead of a list selects everything: all years, territories
+  and other values. This can take many hours.
+* `max_nominal_cells_request` sets the part size in combinations. 100,000 is
+  reliable; you can try up to 250,000, above that the package warns you.
+* `timeout_seconds = 300` waits up to 5 minutes for a response instead of 3.
+* `fedstat_collect()` loads the whole table into memory.
 
-## Request size and waiting
+All settings and details: `?fedstat_download`.
 
-Usually the indicator, filters and working folder are enough. To allow two hours
-instead of one, add `total_time_limit_seconds = 7200` inside the
-`fedstat_download()` call. Other settings work the same way:
+## Free up space
 
-| Argument | Meaning |
-| --- | --- |
-| `max_nominal_cells_request = 100000` | Up to 100,000 filter combinations per request. Smaller requests are usually more reliable, but the whole download may take longer. |
-| `total_time_limit_seconds = 3600` | Overall allowance for one run; one hour by default. |
-| `timeout_seconds = 300` | Allow five minutes for one request instead of the default three. |
-| `request_pause = c(30, 60)` | Wait 30–60 seconds between requests by default. |
-
-The size is the **Cartesian product** of selected years × months × territories ×
-products × other fields. For example, 2 × 12 × 10 × 100 = 24,000 nominal cells,
-though there may be fewer actual rows. Larger parts are subdivided.
-
-Start with **100,000** for reliability. You can try **250,000**, but the best size
-depends on the indicator and Fedstat's current health. Larger values produce a
-warning.
-
-`filters = "*"` instead of a list selects all years, territories and other values
-of the indicator. This can take a long time.
-
-## Remove downloaded parts
-
-Save the finished table, then free the space used by its parts:
+Parts are not deleted automatically. Save your table, then remove them:
 
 ```r
-saveRDS(data, "cpi-2024.rds")
-fedstat_cleanup(job)
+saveRDS(data, "cpi-2024.rds") # save the table
+fedstat_cleanup(job)          # delete the downloaded parts
 ```
 
-Parts are not deleted automatically. Reopen your saved table in another session
-with `data <- readRDS("cpi-2024.rds")`.
+Open the saved table with `data <- readRDS("cpi-2024.rds")`.
 
-## Help
+## Find an indicator
 
-See `?fedstat_download` for settings and `?fedstat_collect` for collection.
-Collection loads the whole table into memory; large datasets and lower-level
-functions are covered in the [technical notes](MIGRATION.md).
+The indicator code is in the address of its page on fedstat.ru. The package also
+includes a list of indicators (as of its release); the code is in the `id` column:
 
-`verbose = FALSE` hides progress; `verbose = "detailed"` shows diagnostic events.
-If something fails, attach `download.log` from the working folder to a
-[GitHub issue](https://github.com/DenchPokepon/fedstatAPIr/issues).
-You do not need to interpret the log yourself. You can also email
-deniskrylovvit@gmail.com.
+```r
+ind <- fedstat_indicators_names_database
+ind[grepl("потребительских цен", ind$title), c("id", "title")] # "consumer prices"
+```
+
+`fedstat_indicator_info()` downloads the current list.
+
+## For advanced users
+
+`fedstat_get_data_ids()`, `fedstat_data_ids_filter()`,
+`fedstat_post_data_ids_filtered()` and `fedstat_parse_sdmx_to_table()` are the
+separate steps of a single request, without parts or pauses.
+`fedstat_data_load_with_filters()` from version 1.x still works but is
+deprecated. See [MIGRATION.md](MIGRATION.md) for what changed since 1.x.
+
+## Help 💬
+
+Help pages: `?fedstat_download`, `?fedstat_collect`, `?fedstat_cleanup`.
+
+If something doesn't work, open a
+[GitHub issue](https://github.com/DenchPokepon/fedstatAPIr/issues) and attach
+`download.log` from the download folder. You don't need to read it; it contains
+no passwords, cookies or tokens. You can also email deniskrylovvit@gmail.com.
 
 ## Support development
 

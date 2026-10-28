@@ -5,7 +5,7 @@ small fixtures, without a test framework or live Fedstat traffic.
 
 ```sh
 R CMD build .
-R CMD check --as-cran fedstatAPIr_1.1.0.9008.tar.gz
+R CMD check --as-cran fedstatAPIr_2.0.0.tar.gz
 ```
 
 For a quicker iteration after installing the source:
@@ -88,7 +88,7 @@ types. Optional positional arguments are the cache directory, year and period la
 This is one month, not the entire historical dataset. The script enables `preview_first = TRUE` to apply each part's filters to the website
 preview before SDMX export; set it to `FALSE` to compare direct exports.
 The script requires version
-1.1.0.9008 or later, prints warnings immediately and saves session information.
+2.0.0 or later, prints warnings immediately and saves session information.
 
 The default allowance is one hour per invocation, including requests, pauses and
 retries. There is no HTTP-count ceiling. `max_nominal_cells_request` controls partition

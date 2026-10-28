@@ -16,8 +16,8 @@ Indicator with condition \code{hidden == TRUE} shows disabled records in fedstat
 }
 \examples{
 \dontrun{
-Get all indicator info
-get_indicators()
+# Get all indicator info
+indicators <- fedstat_indicator_info()
 }
 }
 \seealso{

@@ -11,8 +11,8 @@
 #'
 #' @examples
 #' \dontrun{
-#' Get all indicator info
-#' get_indicators()
+#' # Get all indicator info
+#' indicators <- fedstat_indicator_info()
 #' }
 fedstat_indicator_info <- function() {
   # workaround for `:=` and CMD check

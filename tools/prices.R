@@ -8,7 +8,7 @@ local({
     path <- if (length(args)) args[[1L]] else "fedstat-price-check"
     year <- if (length(args) >= 2L) args[[2L]] else "2024"
     month <- if (length(args) >= 3L) args[[3L]] else "\u044f\u043d\u0432\u0430\u0440\u044c"
-    if (packageVersion("fedstatAPIr") < "1.1.0.9008") stop("Install the updated package (>= 1.1.0.9008) first.")
+    if (packageVersion("fedstatAPIr") < "2.0.0") stop("Install fedstatAPIr 2.0.0 or later first.")
     dir.create(path, recursive = TRUE, showWarnings = FALSE)
     path <- normalizePath(path, mustWork = TRUE)
     # No tokens, cookies or HTTP headers are included in the diagnostic files.

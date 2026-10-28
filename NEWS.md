@@ -1,72 +1,60 @@
-# fedstatAPIr (development)
+# fedstatAPIr 2.0.0
 
-* Empty Cartesian parts now complete after an export HTTP 302 and an explicit
-  zero-row preview. Direct downloads query the preview only when needed.
-* Unreleased batch arguments are `cache_dir`, `total_time_limit_seconds` and
-  `preview_first`; earlier names produce migration guidance.
-* Indicator identifiers are accepted as opaque codes rather than digits only.
-* Russian and English READMEs focus on downloading, collecting and resuming;
-  implementation details remain in the reference and technical notes.
+## New: reliable downloads in parts
 
-* Optional `preview_first = TRUE` applies each part's filters to the browser
-  preview before SDMX export, sharing the session, pauses and time allowance.
-* Progress reports completed nominal combinations, including after subdivision
-  and resume. Retry messages identify the failed step; filter readiness is explicit.
-* Sources use styler with four-space indentation.
+* `fedstat_download()` downloads an indicator in small parts, one request at a
+  time with pauses, and saves every finished part to disk. Fedstat builds every
+  combination of the selected filter values, so large selections are split into
+  parts of at most `max_nominal_cells_request` combinations (100,000 by default).
+  If a run stops (time allowance, Fedstat outage, closed R), running the same
+  call again continues with the remaining parts.
+* Failed requests are retried; a part is split further only when its size is
+  the likely cause. Outages and access refusals lead to recovery pauses instead.
+* If Fedstat renames or withdraws selected values during a download, the
+  download continues with a warning. It stops only if a whole filter is added or
+  removed, or an export contains values that were not requested.
+* `preview_first = TRUE` asks Fedstat to show each part's table before
+  downloading it, like pressing "Apply" on the website.
+* `fedstat_collect()` builds the table from a finished download. `ObsValue` is
+  numeric by default; if a value is not a number, it stops and names it
+  (`try_to_parse_ObsValue = FALSE` returns text).
+* `fedstat_cleanup()` deletes the saved parts after you have saved the table.
+* Each download keeps a diagnostic `download.log` without tokens, cookies or
+  response bodies.
 
-* Batch downloads now default to a one-hour time allowance, without an HTTP-count
-  ceiling. Requests and pauses share it; expiry preserves resumable progress.
-* The batch size control is `max_nominal_cells_request` (default 100,000).
-  Values above 250,000 warn; the earlier unpublished size names are removed.
-* Console output defaults to short progress messages; `verbose = "detailed"`
-  exposes technical events while diagnostic file logs always retain full detail.
-* Suspected access checks exclude script/style/comment text. Batch jobs warn,
-  wait at least five minutes, and refresh the token within bounded recovery.
-* `fedstat_cleanup()` and `fedstat_collect(remove_parts = TRUE)` explicitly remove
-  verified parts while retaining logs and unrelated files.
+## Deprecated
 
-* Older curl callback-abort errors now propagate as interrupts, with no retry or
-  network-error report. The price-check script exits cleanly on cancellation.
-* Response sniffing handles UTF-8 characters cut by the inspection window without
-  spurious warnings or changes to the downloaded data.
+* `fedstat_data_load_with_filters()` still works but warns on every call (class
+  `fedstat_deprecated`). It sends the whole selection as one request, which is
+  slow for large selections and heavy for Fedstat. Use `fedstat_download()` and
+  `fedstat_collect()` instead; see `MIGRATION.md`.
 
-* Batch downloads recover automatically after bounded cooldowns, separately retry
-  transient token GETs, and subdivide ambiguous export rejections after session
-  repair. Recovery shares the original invocation time allowance.
-* Warnings are included in diagnostic logs; stop messages distinguish exhausted
-  budgets from persistent failures.
-* New downloads store data in `parts/`. Existing flat checkpoints resume unchanged.
-* The main README is fully Russian and leads with an explained batch example;
-  English documentation is provided separately.
+## Changes in existing functions
 
-* Batch downloads now append timestamped JSON Lines to `download.log`, independent
-  of console verbosity. Events include request counts/stages, waits, timings,
-  byte counts, token refreshes, split dimensions/reasons and saved progress.
-* All failures and interruptions after job setup receive a recovery summary.
-* Completion now includes disk-based validation of keys across parts; duplicate
-  observations cannot be deferred until collection. Older manifests are validated
-  once without downloading again. Equivalent filter orderings and label forms
-  are accepted on resume.
-* `tools/prices.R` provides a bounded real CPI workload with diagnostic files.
+All 1.x functions keep their names, arguments and defaults.
 
-* Existing exported function names, arguments, defaults and successful return
-  types are preserved. No call-site migration is required.
-* Added `fedstat_download()` for sequential, resumable downloads, with explicit
-  request-size, token-reuse, retry and time-allowance controls. Verified RDS
-  parts require no additional packages; `fedstat_collect()` loads them.
-* HTTP configuration now reaches fallback token GETs. Global httr configuration
-  and per-call headers override package defaults. Existing timeouts still bound
-  the complete HTTP transfer; connection and low-speed limits can be set in `...`.
-* Retry ownership is explicit: the convenience wrapper no longer multiplies GET
-  retries or retries permanent errors. Resolved metadata survive session refresh.
-* Added typed errors with stage and HTTP status fields. Error text omits response
-  bodies, cookies and tokens. See `MIGRATION.md` for custom retry wrappers.
-* Metadata scripts are located by content rather than position. Numeric parsing
-  now detects invalid values even when the source contains no missing values.
-* SDMX parsing avoids a full text copy, cleans temporary files on failure,
-  accepts file input, skips observation parsing for dictionary-only requests,
-  and rejects truncated or structurally invalid exports.
-* Added dependency-free offline regression tests and opt-in live/benchmark scripts.
+* `try_to_parse_ObsValue = TRUE` now reliably raises an error for values that
+  are not numbers; in 1.x this check could silently pass.
+* An export that Fedstat marks as truncated is an error, not complete data.
+* `retry_max_times` in `fedstat_data_load_with_filters()` counts whole attempts;
+  retries are no longer nested and permanent errors stop immediately.
+* A missing or expired download token is renewed automatically, with the same
+  HTTP settings.
+* httr settings passed in `...` apply to every request, including token
+  renewal. `httr::set_config()` and `options(fedstatAPIr.config = ...)` are
+  respected.
+* Errors have classes (all inheriting from `fedstat_error`) with the failed
+  step in `e$stage` and the HTTP status in `e$status`. Messages no longer include
+  response bodies.
+* Indicator pages are read more robustly, indicator codes are no longer limited
+  to digits, and SDMX parsing accepts files, uses less memory and rejects
+  damaged exports.
+
+## Documentation
+
+* New Russian and English READMEs for researchers: a quick example with real
+  data, why downloads go in parts, and what to do about each message.
+* `MIGRATION.md` explains upgrading from 1.x.
 
 # fedstatAPIr 1.1.0
 
