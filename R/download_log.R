@@ -119,7 +119,7 @@ fedstat_console <- function(e) {
             round(e$total_time_limit_seconds / 60, 1), " minutes this run."
         ),
         PREPARE = "==> Reading available filters...",
-        VERIFY = "==> Checking previously saved data...",
+        VERIFY = paste0("==> Checking previously saved data", progress, "..."),
         RESUME = paste0("==> Continuing with ", parts, " already saved", progress, "."),
         SELECTION = "==> Filters ready. Starting the download.",
         DOWNLOAD = "==> Downloading the next part...",
