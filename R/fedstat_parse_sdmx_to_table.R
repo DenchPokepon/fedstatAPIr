@@ -123,7 +123,7 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
     data <- if (observations) {
         data.table::as.data.table(readsdmx::read_sdmx(tmp_file))
     } else {
-        data.table::as.data.table(setNames(
+        data.table::as.data.table(stats::setNames(
             rep(list(character()), length(unique(codelist_tbl$field_id)) + 1L),
             c(unique(codelist_tbl$field_id), "ObsValue")
         ))
@@ -148,7 +148,7 @@ fedstat_parse_sdmx <- function(data_raw, return_type = c("data", "dictionary"),
     if (!is.null(check_dictionary)) {
         for (id in field_ids) {
             allowed <- codelist_tbl$value_id[codelist_tbl$field_id == id]
-            if (anyNA(data[[id]]) || any(!data[[id]] %in% allowed)) fedstat_dictionary_changed()
+            if (anyNA(data[[id]]) || any(!data[[id]] %in% allowed)) fedstat_inconsistent_export()
         }
     }
     if (!is.null(selection)) fedstat_check_requested_codes(data, codelist_tbl, selection)

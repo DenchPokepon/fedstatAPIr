@@ -11,7 +11,7 @@ fedstat_download(
   cache_dir,
   max_nominal_cells_request = 1e+05,
   token_policy = c("reuse", "refresh"),
-  prepare_before_download = FALSE,
+  preview_first = FALSE,
   timeout_seconds = 180,
   retry_max_times = 2L,
   request_pause = c(30, 60),
@@ -49,7 +49,7 @@ be subdivided further.}
 \item{token_policy}{\code{"reuse"} reuses a token until rejection; \code{"refresh"} gets
 a fresh token before each subsequent export. Metadata is reused either way.}
 
-\item{prepare_before_download}{If \code{TRUE}, submit each part's filters to Fedstat's browser
+\item{preview_first}{If \code{TRUE}, submit each part's filters to Fedstat's browser
 preview (\code{dataGrid.do}) before each export attempt, using the same session.
 Default \code{FALSE}: this adds an HTTP request and server work per attempt.
 Nonempty data come from SDMX. An export HTTP 302 with an explicitly empty
@@ -60,14 +60,14 @@ share pacing, timeout configuration and the invocation's time allowance.}
 \item{timeout_seconds}{Maximum duration of each HTTP request, including transfer.}
 
 \item{retry_max_times}{Maximum data attempts per part before subdivision or
-cooldown, including the first. With \code{prepare_before_download = TRUE}, each attempt
+cooldown, including the first. With \code{preview_first = TRUE}, each attempt
 prepares the preview before exporting. Metadata and token GETs have their own attempts;
 all attempts share the invocation's time allowance.}
 
 \item{request_pause}{Seconds to wait between HTTP requests: a number or a
 two-number range for random pauses. Retry delays and Retry-After can extend it.}
 
-\item{max_depth}{Maximum binary subdivisions from the original selection.}
+\item{max_depth}{Maximum levels of subdivision below the original selection.}
 
 \item{max_failures}{Pause recovery after this many consecutive transient or
 ambiguous export/preview failures; this limits subdivision during an outage.}
@@ -108,26 +108,31 @@ saved progress. No optional storage packages are required.
 }
 \details{
 Wildcards are frozen when the manifest is created. On resume, added
-values do not expand that selection; removed or changed selected values and
-changed dimension layouts stop the job. Tokens are never saved. Delete a
+values do not expand that selection. Tokens are never saved. Delete a
 stale \code{.lock} directory only after confirming no process is using the job.
-Filter definitions are also checked on token renewal, before accepting an
-empty preview as a completed part, and before final completion. These checks
-compare IDs, labels and layout, not the indicator's last-updated date.
-SDMX dictionaries are checked across exports; conflicting definitions,
-unknown observation codes and incompatible table schemas stop the job.
-Metadata checks for empty parts and completion add paced HTTP requests.
-These checks cannot detect a change that is reverted between checks, or a
-change in meaning that retains the same IDs and labels.
+
+Filter definitions are checked at the start of every run, on token renewal
+and before final completion. IDs identify what is requested: an added or
+removed filter field stops the job. A selected value that Fedstat no longer
+offers is left out of unfinished parts with a warning and listed in the
+result's \code{unavailable} element. Renamed values (same ID or code) continue
+with a warning; \code{\link[=fedstat_collect]{fedstat_collect()}} uses the newest label for each code.
+Requests follow the page's current row/column layout. An export that
+contradicts its own code lists is retried as a damaged response. These checks
+cannot detect a change in meaning that keeps the same IDs and labels.
 
 Defaults are deliberately conservative: 100,000 filter combinations, 30--60
 seconds between requests, two attempts per part, and one hour per invocation.
 Three additional cooldown/recovery cycles are allowed without a
 successfully saved part, initially waiting 60 seconds and doubling each time.
-An export redirect rejected again after token repair may be subdivided, but
-needs a preview check to confirm no observations. Token/metadata failures do not cause splitting.
-There is no universal safe request size. A timeout may leave the
-server computing the original export, so retries also wait.
+A part over the size limit is split along its largest filter into the fewest
+groups that fit. After failures a part is halved only when its size is the
+likely cause: request timeouts, gateway timeouts (HTTP 504), truncated
+exports, or redirects that persist after a token repair. Dropped or refused
+connections pause instead. Splits made after failures are undone on the next
+run if none of their parts was saved. An export redirect needs a preview
+check to confirm no observations. There is no universal safe request size. A
+timeout may leave the server computing the original export, so retries also wait.
 
 Completion means all planned parts were received and validated, not that
 Fedstat published every possible observation. A long download is not an

@@ -21,7 +21,7 @@ fedstat_user_agent <- function(configs) {
         if (inherits(config, "request")) {
             if (!is.null(config$options$useragent)) agent <- config$options$useragent
             headers <- config$headers[tolower(names(config$headers)) == "user-agent"]
-            if (length(headers)) agent <- unname(tail(headers, 1L))
+            if (length(headers)) agent <- unname(utils::tail(headers, 1L))
         }
     }
     # An explicit HTTP header otherwise overrides CURLOPT_USERAGENT, even when

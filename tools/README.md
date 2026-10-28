@@ -85,7 +85,7 @@ Rscript tools/prices.R ../fedstat-price-check
 
 Defaults: indicator 31074, January 2024, all territories, goods and indicator
 types. Optional positional arguments are the cache directory, year and period label.
-This is one month, not the entire historical dataset. The script enables `prepare_before_download = TRUE` to apply each part's filters to the website
+This is one month, not the entire historical dataset. The script enables `preview_first = TRUE` to apply each part's filters to the website
 preview before SDMX export; set it to `FALSE` to compare direct exports.
 The script requires version
 1.1.0.9008 or later, prints warnings immediately and saves session information.
@@ -136,7 +136,7 @@ both guides consistent. Technical migration notes remain in `MIGRATION.md`.
 ## Empty Cartesian parts
 
 After an SDMX HTTP 302, the batch downloader confirms empty selections with an
-exact-selection preview. With `prepare_before_download = FALSE`, this adds a
+exact-selection preview. With `preview_first = FALSE`, this adds a
 preview request only after that redirect; with `TRUE`, the current preview is
 reused. Explicit zero observations complete the part as a checksummed zero-row
 RDS and record `empty_evidence` in the manifest. Malformed/contradictory responses

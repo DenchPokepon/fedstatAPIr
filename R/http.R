@@ -61,9 +61,10 @@ fedstat_response <- function(response, stage) {
         )
     }
     if (status >= 500L) {
+        # A gateway timeout means Fedstat was still computing: a size hint.
         fedstat_error(
             paste0("Fedstat unavailable (HTTP ", status, ")."),
-            "transient", stage, status, delay
+            c(if (status == 504L) "timeout", "transient"), stage, status, delay
         )
     }
     if (status >= 300L && status < 400L) {
@@ -116,7 +117,7 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
                 c(list(defaults, httr::timeout(timeout_seconds)), list(...))
             )
             settings <- do.call(c, configs)$options
-            configured <- tail(settings[names(settings) %in% c("timeout", "timeout_ms")], 1L)
+            configured <- utils::tail(settings[names(settings) %in% c("timeout", "timeout_ms")], 1L)
             request_seconds <- configured[[1L]] / if (names(configured) == "timeout_ms") 1000 else 1
             if (request_seconds == 0) request_seconds <- Inf
             deadline <- httr::timeout(min(request_seconds, available))
@@ -151,12 +152,16 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
                         conditionMessage(e),
                         ignore.case = TRUE
                     )
+                    # Connect/resolve timeouts mean no server answered: not a size hint.
+                    timeout <- grepl("timed? ?out|timeout", conditionMessage(e), ignore.case = TRUE) &&
+                        !grepl("connect|resolv", conditionMessage(e), ignore.case = TRUE)
                     return(structure(
                         list(
                             message = paste0("Fedstat ", stage, ": ", conditionMessage(e)),
                             call = NULL, stage = stage
                         ),
                         class = c(
+                            if (timeout) "fedstat_timeout",
                             if (temporary) "fedstat_transient" else "fedstat_transport",
                             "fedstat_error", "error", "condition"
                         )

@@ -24,7 +24,7 @@
 #'   safely before stopping, so these operations can extend the elapsed time.
 #' @param token_policy `"reuse"` reuses a token until rejection; `"refresh"` gets
 #'   a fresh token before each subsequent export. Metadata is reused either way.
-#' @param prepare_before_download If `TRUE`, submit each part's filters to Fedstat's browser
+#' @param preview_first If `TRUE`, submit each part's filters to Fedstat's browser
 #'   preview (`dataGrid.do`) before each export attempt, using the same session.
 #'   Default `FALSE`: this adds an HTTP request and server work per attempt.
 #'   Nonempty data come from SDMX. An export HTTP 302 with an explicitly empty
@@ -33,12 +33,12 @@
 #'   share pacing, timeout configuration and the invocation's time allowance.
 #' @param timeout_seconds Maximum duration of each HTTP request, including transfer.
 #' @param retry_max_times Maximum data attempts per part before subdivision or
-#'   cooldown, including the first. With `prepare_before_download = TRUE`, each attempt
+#'   cooldown, including the first. With `preview_first = TRUE`, each attempt
 #'   prepares the preview before exporting. Metadata and token GETs have their own attempts;
 #'   all attempts share the invocation's time allowance.
 #' @param request_pause Seconds to wait between HTTP requests: a number or a
 #'   two-number range for random pauses. Retry delays and Retry-After can extend it.
-#' @param max_depth Maximum binary subdivisions from the original selection.
+#' @param max_depth Maximum levels of subdivision below the original selection.
 #' @param max_failures Pause recovery after this many consecutive transient or
 #'   ambiguous export/preview failures; this limits subdivision during an outage.
 #' @param verbose Console detail: `TRUE` or `"progress"` for short updates (default),
@@ -59,26 +59,31 @@
 #'   summary. Data stay on disk; use [fedstat_collect()] to load them. On failure,
 #'   an error is raised and verified progress is retained for the next call.
 #' @details Wildcards are frozen when the manifest is created. On resume, added
-#'   values do not expand that selection; removed or changed selected values and
-#'   changed dimension layouts stop the job. Tokens are never saved. Delete a
+#'   values do not expand that selection. Tokens are never saved. Delete a
 #'   stale `.lock` directory only after confirming no process is using the job.
-#'   Filter definitions are also checked on token renewal, before accepting an
-#'   empty preview as a completed part, and before final completion. These checks
-#'   compare IDs, labels and layout, not the indicator's last-updated date.
-#'   SDMX dictionaries are checked across exports; conflicting definitions,
-#'   unknown observation codes and incompatible table schemas stop the job.
-#'   Metadata checks for empty parts and completion add paced HTTP requests.
-#'   These checks cannot detect a change that is reverted between checks, or a
-#'   change in meaning that retains the same IDs and labels.
+#'
+#'   Filter definitions are checked at the start of every run, on token renewal
+#'   and before final completion. IDs identify what is requested: an added or
+#'   removed filter field stops the job. A selected value that Fedstat no longer
+#'   offers is left out of unfinished parts with a warning and listed in the
+#'   result's `unavailable` element. Renamed values (same ID or code) continue
+#'   with a warning; [fedstat_collect()] uses the newest label for each code.
+#'   Requests follow the page's current row/column layout. An export that
+#'   contradicts its own code lists is retried as a damaged response. These checks
+#'   cannot detect a change in meaning that keeps the same IDs and labels.
 #'
 #'   Defaults are deliberately conservative: 100,000 filter combinations, 30--60
 #'   seconds between requests, two attempts per part, and one hour per invocation.
 #'   Three additional cooldown/recovery cycles are allowed without a
 #'   successfully saved part, initially waiting 60 seconds and doubling each time.
-#'   An export redirect rejected again after token repair may be subdivided, but
-#'   needs a preview check to confirm no observations. Token/metadata failures do not cause splitting.
-#'   There is no universal safe request size. A timeout may leave the
-#'   server computing the original export, so retries also wait.
+#'   A part over the size limit is split along its largest filter into the fewest
+#'   groups that fit. After failures a part is halved only when its size is the
+#'   likely cause: request timeouts, gateway timeouts (HTTP 504), truncated
+#'   exports, or redirects that persist after a token repair. Dropped or refused
+#'   connections pause instead. Splits made after failures are undone on the next
+#'   run if none of their parts was saved. An export redirect needs a preview
+#'   check to confirm no observations. There is no universal safe request size. A
+#'   timeout may leave the server computing the original export, so retries also wait.
 #'
 #'   Completion means all planned parts were received and validated, not that
 #'   Fedstat published every possible observation. A long download is not an
@@ -97,21 +102,27 @@
 #' }
 fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                              max_nominal_cells_request = 100000, token_policy = c("reuse", "refresh"),
-                             prepare_before_download = FALSE,
+                             preview_first = FALSE,
                              timeout_seconds = 180, retry_max_times = 2L,
                              request_pause = c(30, 60),
                              max_depth = 20L, max_failures = 6L, verbose = TRUE,
                              log_file = file.path(cache_dir, "download.log"),
                              recovery_max_times = 3L, recovery_pause = 60,
                              total_time_limit_seconds = 3600, access_pause = 300) {
-    obsolete <- intersect(names(match.call(expand.dots = FALSE)$...), c("max_cells", "max_combinations"))
-    if (length(obsolete)) stop("Use max_nominal_cells_request instead of ", paste(obsolete, collapse = ", "), ".", call. = FALSE)
-    if (!is.logical(prepare_before_download) || length(prepare_before_download) != 1L || is.na(prepare_before_download)) {
-        stop("prepare_before_download must be TRUE or FALSE.", call. = FALSE)
+    # `...` carries only httr settings; anything else is a misspelled argument.
+    unknown <- !vapply(list(...), function(x) is.null(x) || inherits(x, "request"), logical(1L))
+    if (any(unknown)) {
+        labels <- names(list(...))
+        if (is.null(labels)) labels <- rep("", length(unknown))
+        labels[!nzchar(labels)] <- "(unnamed)"
+        stop("Unknown argument: ", paste(labels[unknown], collapse = ", "),
+            ". Check the spelling in ?fedstat_download.",
+            call. = FALSE
+        )
     }
-    old_names <- c(path = "cache_dir", time_limit_seconds = "total_time_limit_seconds", prepare_grid = "prepare_before_download")
-    supplied <- intersect(names(match.call(expand.dots = FALSE)$...), names(old_names))
-    if (length(supplied)) stop("Rename ", paste(paste(supplied, "to", old_names[supplied]), collapse = "; "), ". Your saved download folder can be reused.", call. = FALSE)
+    if (!is.logical(preview_first) || length(preview_first) != 1L || is.na(preview_first)) {
+        stop("preview_first must be TRUE or FALSE.", call. = FALSE)
+    }
     path <- cache_dir
     started <- fedstat_elapsed()
     token_policy <- match.arg(token_policy)
@@ -216,7 +227,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
             package_version = as.character(utils::packageVersion("fedstatAPIr")),
             r_version = as.character(getRversion()), platform = R.version$platform,
             max_nominal_cells_request = max_nominal_cells_request, token_policy = token_policy, timeout_seconds = timeout_seconds,
-            prepare_before_download = prepare_before_download,
+            preview_first = preview_first,
             request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
             max_failures = max_failures, log_file = log_file,
             recovery_max_times = recovery_max_times, recovery_pause = recovery_pause, access_pause = access_pause
@@ -249,6 +260,16 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 if (isTRUE(manifest$validated) && all(vapply(manifest$parts, function(p) p$status != "pending", logical(1L)))) {
                     report("COMPLETE", paste0("Already complete and verified: ", path))
                     return(fedstat_download_result(manifest, path))
+                }
+                parts <- fedstat_merge_failure_splits(manifest$parts)
+                merged <- attr(parts, "merged")
+                if (length(merged)) {
+                    attr(parts, "merged") <- NULL
+                    manifest$parts <- parts
+                    save_manifest()
+                    report("MERGE", paste0(
+                        "Rejoined ", length(merged), " part(s) split after earlier failures; nothing from them was saved yet."
+                    ), merged_parts = merged)
                 }
             }
             delay <- 0
@@ -330,7 +351,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
             }
             session <- fedstat_session(metadata)
             session$before <- gate
-            session$prepare_before_download <- prepare_before_download
+            session$preview_first <- preview_first
             phase <- "selection"
             if (is.null(manifest)) {
                 selection <- fedstat_download_selection(metadata, filters)
@@ -341,7 +362,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 )
                 save_manifest()
             } else {
-                fedstat_check_selection(manifest$selection, metadata)
                 report("RESUME", paste0(
                     "Resuming: ", fedstat_progress(manifest)$saved_parts,
                     " saved parts will be skipped; existing partitions are retained. Continuing in ", path
@@ -349,12 +369,85 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
             }
             parts_dir <- if (is.null(manifest$parts_dir)) "" else manifest$parts_dir
             if (nzchar(parts_dir)) dir.create(file.path(path, parts_dir), showWarnings = FALSE)
+            # The manifest keeps the selection as first resolved; this copy follows
+            # Fedstat's current labels and layout for building requests.
             selection <- manifest$selection
-            session$selection <- selection
+            note_renamed <- function(renamed) {
+                if (is.null(renamed) || !nrow(renamed)) {
+                    return(invisible())
+                }
+                key <- function(x) fedstat_keys(x, c("field_id", "value_id", "new_title"))
+                known <- if (is.null(manifest$renamed)) character() else key(manifest$renamed)
+                renamed <- renamed[!key(renamed) %in% known, , drop = FALSE]
+                if (!nrow(renamed)) {
+                    return(invisible())
+                }
+                manifest$renamed <<- rbind(manifest$renamed, renamed)
+                report("RENAMED", paste0("Fedstat renamed ", nrow(renamed), " value(s)."), renamed = renamed)
+                warning(
+                    "Fedstat renamed some values during this download: ",
+                    fedstat_list_values(paste0(renamed$old_title, " -> ", renamed$new_title)),
+                    ". The download continues; the final table uses the newest names.",
+                    call. = FALSE, immediate. = TRUE
+                )
+            }
+            apply_definitions <- function(current) {
+                changes <- fedstat_compare_definitions(manifest$selection, current)
+                if (length(changes$added_fields) || length(changes$removed_fields)) {
+                    fedstat_dictionary_changed(paste0(
+                        "Fedstat changed the filters of this indicator (",
+                        paste(c(
+                            if (length(changes$added_fields)) paste("added:", paste(changes$added_fields, collapse = ", ")),
+                            if (length(changes$removed_fields)) paste("removed:", paste(changes$removed_fields, collapse = ", "))
+                        ), collapse = "; "), ")."
+                    ))
+                }
+                selection$filter_field_object_ids <<- changes$layout
+                renamed <- changes$renamed
+                selection$filter_value_title[renamed] <<- changes$new_title[renamed]
+                note_renamed(data.frame(
+                    field_id = manifest$selection$filter_field_id[renamed],
+                    value_id = manifest$selection$filter_value_id[renamed],
+                    old_title = manifest$selection$filter_value_title[renamed],
+                    new_title = changes$new_title[renamed], stringsAsFactors = FALSE
+                ))
+                missing <- setdiff(changes$missing, manifest$unavailable$row)
+                if (length(missing)) {
+                    unavailable <- data.frame(
+                        row = missing, field_id = manifest$selection$filter_field_id[missing],
+                        field_title = manifest$selection$filter_field_title[missing],
+                        value_id = manifest$selection$filter_value_id[missing],
+                        value_title = manifest$selection$filter_value_title[missing],
+                        detected_at = format(Sys.time(), tz = "UTC", usetz = TRUE), stringsAsFactors = FALSE
+                    )
+                    manifest$unavailable <<- rbind(manifest$unavailable, unavailable)
+                    needed <- any(vapply(manifest$parts, function(p) p$status == "pending" && any(p$rows %in% missing), logical(1L)))
+                    report("UNAVAILABLE", paste0(
+                        "Fedstat no longer offers ", length(missing), " selected value(s)",
+                        if (needed) "; unfinished parts continue without them." else "; they were already downloaded."
+                    ), values = unavailable[c("field_title", "value_title")])
+                    if (needed) {
+                        warning(
+                            "Fedstat no longer offers some of the values you selected: ",
+                            fedstat_list_values(paste0(unavailable$field_title, ": ", unavailable$value_title)),
+                            ". The download continues without them; see the 'unavailable' element of the result.",
+                            call. = FALSE, immediate. = TRUE
+                        )
+                    }
+                }
+                if (length(missing) || length(renamed)) save_manifest()
+                invisible()
+            }
+            apply_definitions(metadata)
+            session$check_definitions <- apply_definitions
             dictionary <- manifest$dictionary
             if (is.null(dictionary)) dictionary <- fedstat_saved_dictionary(manifest, path)
             check_dictionary <- function(current) {
-                dictionary <<- fedstat_check_dictionary(dictionary, current)
+                updated <- fedstat_check_dictionary(dictionary, current)
+                renamed <- attr(updated, "renamed")
+                attr(updated, "renamed") <- NULL
+                dictionary <<- updated
+                if (!is.null(renamed)) note_renamed(renamed)
             }
             check_metadata <- function() {
                 report("CHECK_METADATA", "Checking that the selected filters have not changed.")
@@ -362,7 +455,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                     timeout_seconds = timeout_seconds, retry_max_times = retry_max_times,
                     before = gate, session = session
                 )
-                fedstat_check_selection(selection, current)
+                apply_definitions(current)
                 fresh <- fedstat_session(current)
                 session$token <- fresh$token
                 session$token_name <- fresh$token_name
@@ -377,8 +470,8 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
             )
             split_part <- function(index, reason) {
                 part <- manifest$parts[[index]]
-                halves <- fedstat_halves(selection, part$rows)
-                if (is.null(halves)) {
+                groups <- fedstat_partition(selection, part$rows, if (reason == "size_limit") max_nominal_cells_request)
+                if (is.null(groups)) {
                     return(FALSE)
                 }
                 if (part$depth >= max_depth) {
@@ -388,17 +481,18 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                     )
                 }
                 manifest$parts[[index]]$status <<- "split"
-                children <- lapply(1:2, function(i) {
+                manifest$parts[[index]]$split_reason <<- reason
+                children <- lapply(seq_along(groups), function(i) {
                     list(
-                        id = paste0(part$id, ".", i), rows = halves[[i]],
+                        id = paste0(part$id, ".", i), rows = groups[[i]],
                         depth = part$depth + 1L, status = "pending"
                     )
                 })
                 manifest$parts <<- append(manifest$parts, children, after = index)
                 save_manifest()
-                field <- attr(halves, "field")
+                field <- attr(groups, "field")
                 label <- selection$filter_field_title[match(field, selection$filter_field_id)]
-                sizes <- vapply(halves, function(rows) sum(selection$filter_field_id[rows] == field), integer(1L))
+                sizes <- vapply(groups, function(rows) sum(selection$filter_field_id[rows] == field), integer(1L))
                 report("SPLIT", paste0(
                     "Split ", label, ": ", sum(sizes), " -> ", paste(sizes, collapse = " + "),
                     "; reason: ", reason
@@ -407,6 +501,22 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 dimension = label, cardinalities = sizes, reason = reason, depth = part$depth + 1L
                 )
                 TRUE
+            }
+            save_part <- function(index, data, evidence = NULL) {
+                part <- manifest$parts[[index]]
+                file <- paste0("part-", part$id, ".rds")
+                if (nzchar(parts_dir)) file <- file.path(parts_dir, file)
+                phase <<- "storage"
+                fedstat_save(data, file.path(path, file))
+                manifest$parts[[index]]$status <<- "complete"
+                manifest$parts[[index]]$file <<- file
+                manifest$parts[[index]]$checksum <<- unname(tools::md5sum(file.path(path, file)))
+                manifest$parts[[index]]$nrow <<- nrow(data)
+                manifest$parts[[index]]$empty_evidence <<- evidence
+                manifest$parts[[index]]$retrieved_at <<- format(Sys.time(), tz = "UTC", usetz = TRUE)
+                manifest$dictionary <<- dictionary
+                save_manifest()
+                report("SAVED", paste0("Saved part ", part$id, ": ", nrow(data), " rows."), file = file)
             }
             repeat {
                 pending <- which(vapply(manifest$parts, function(p) p$status == "pending", logical(1L)))
@@ -417,7 +527,14 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 current_part <- part$id
                 current_attempt <- NULL
                 phase <- "planning"
-                selected <- selection[part$rows, , drop = FALSE]
+                # Values Fedstat no longer offers are left out of requests.
+                rows <- setdiff(part$rows, manifest$unavailable$row)
+                selected <- selection[rows, , drop = FALSE]
+                if (!all(unique(selection$filter_field_id[part$rows]) %in% selected$filter_field_id)) {
+                    report("EMPTY", "Every selected value of a filter in this part is no longer offered by Fedstat.", evidence = "values_withdrawn")
+                    save_part(index, data.frame(ObsValue = character(), stringsAsFactors = FALSE), "values_withdrawn")
+                    next
+                }
                 log_cells <- sum(log(as.numeric(table(selected$filter_field_id))))
                 if (log_cells > log(max_nominal_cells_request) + 1e-10) {
                     if (!split_part(index, "size_limit")) stop("Selection cannot be reduced below max_nominal_cells_request.", call. = FALSE)
@@ -425,7 +542,7 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                 }
                 report("DOWNLOAD", "Downloading the next part.")
                 selected <- fedstat_attach_session(selected, session)
-                repaired <- FALSE
+                repaired <- outage <- FALSE
                 session$empty_confirmed <- FALSE
                 for (attempt in seq_len(retry_max_times)) {
                     current_attempt <- attempt
@@ -445,7 +562,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                             parse_started <- proc.time()[["elapsed"]]
                             data <- fedstat_parse_sdmx(bytes, try_to_parse_ObsValue = FALSE, indicator_id = indicator_id, check_dictionary = check_dictionary, selection = selected)
                             fedstat_check_data(data)
-                            if (!nrow(data)) check_metadata()
                             report("PARSED", paste0(nrow(data), " rows validated."),
                                 rows = nrow(data),
                                 seconds = round(proc.time()[["elapsed"]] - parse_started, 3)
@@ -455,19 +571,20 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                         error = identity
                     )
                     # Redirects are ambiguous. Only an explicit zero-row preview
-                    # for this exact selection can confirm an empty part.
+                    # for this exact selection can confirm an empty part. Filter
+                    # definitions are not re-read here: run start, token renewal
+                    # and completion already check them.
                     if (inherits(result, "fedstat_redirect") && identical(result$stage, "export") && identical(result$status, 302L)) {
                         result <- tryCatch(
                             {
                                 empty <- isTRUE(session$preview_empty)
-                                if (!prepare_before_download) {
+                                if (!preview_first) {
                                     report("CHECK_EMPTY", "Checking whether this selection contains observations.")
-                                    empty <- fedstat_prepare_before_download(selected, session, ...,
+                                    empty <- fedstat_preview(selected, session, ...,
                                         timeout_seconds = timeout_seconds, before = gate
                                     )
                                 }
                                 if (empty) {
-                                    check_metadata()
                                     session$empty_confirmed <- TRUE
                                     report("EMPTY", "Fedstat explicitly reported zero observations for this part.", evidence = "empty_preview")
                                     data.frame(ObsValue = character(), stringsAsFactors = FALSE)
@@ -484,6 +601,9 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                     token <- isTRUE(result$stage %in% c("export", "grid")) && (inherits(result, "fedstat_token") ||
                         inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
                     transfer <- inherits(result, "fedstat_transient") && isTRUE(result$stage %in% c("export", "grid"))
+                    # Only timeouts suggest the request is too big; dropped or refused
+                    # connections mean Fedstat is unwell, which a pause handles better.
+                    if (transfer && !inherits(result, "fedstat_timeout")) outage <- TRUE
                     if (transfer || token) failures <- failures + 1L
                     report("PART_ERROR", conditionMessage(result),
                         error_class = class(result)[1L],
@@ -509,30 +629,18 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                     rejected <- repaired && isTRUE(result$stage %in% c("export", "grid")) &&
                         (inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
                     splittable <- rejected || inherits(result, "fedstat_truncated") ||
-                        (inherits(result, "fedstat_transient") && isTRUE(result$stage %in% c("export", "grid")))
+                        (!outage && inherits(result, "fedstat_timeout") && isTRUE(result$stage %in% c("export", "grid")))
                     if (splittable) {
                         delay <- fedstat_backoff(retry_max_times, result)
                         session$token <- NULL
-                        reason <- if (rejected) "rejected_after_refresh" else if (inherits(result, "fedstat_truncated")) "truncated" else "export_failures"
+                        reason <- if (rejected) "rejected_after_refresh" else if (inherits(result, "fedstat_truncated")) "truncated" else "timeout"
                         if (split_part(index, reason)) next
                     }
                     if (recover(result)) next
                     stop(result)
                 }
                 failures <- recoveries <- 0L
-                file <- paste0("part-", part$id, ".rds")
-                if (nzchar(parts_dir)) file <- file.path(parts_dir, file)
-                phase <- "storage"
-                fedstat_save(result, file.path(path, file))
-                manifest$parts[[index]]$status <- "complete"
-                manifest$parts[[index]]$file <- file
-                manifest$parts[[index]]$checksum <- unname(tools::md5sum(file.path(path, file)))
-                manifest$parts[[index]]$nrow <- nrow(result)
-                if (isTRUE(session$empty_confirmed)) manifest$parts[[index]]$empty_evidence <- "preview_zero_after_export_302"
-                manifest$parts[[index]]$retrieved_at <- format(Sys.time(), tz = "UTC", usetz = TRUE)
-                manifest$dictionary <- dictionary
-                save_manifest()
-                report("SAVED", paste0("Saved part ", part$id, ": ", nrow(result), " rows."), file = file)
+                save_part(index, result, if (isTRUE(session$empty_confirmed)) "preview_zero_after_export_302")
             }
             phase <- "validation"
             current_part <- current_attempt <- NULL
@@ -566,33 +674,83 @@ fedstat_download_selection <- function(metadata, filters) {
     selection
 }
 
-fedstat_check_selection <- function(selection, metadata) {
+# Compare the frozen selection with the page's current filters. IDs identify
+# what is requested; titles are labels and rows/columns are presentation.
+fedstat_compare_definitions <- function(selection, metadata) {
     fields <- unique(selection$filter_field_id)
-    if (!setequal(fields, unique(metadata$filter_field_id))) {
-        fedstat_dictionary_changed()
-    }
+    current_fields <- unique(metadata$filter_field_id)
     key <- function(x) fedstat_keys(x, c("filter_field_id", "filter_value_id"))
-    current <- metadata[match(key(selection), key(metadata)), names(selection), drop = FALSE]
-    if (anyNA(current) || !all(vapply(names(selection), function(n) identical(selection[[n]], current[[n]]), logical(1L)))) {
-        fedstat_dictionary_changed()
-    }
+    at <- match(key(selection), key(metadata))
+    found <- !is.na(at)
+    title <- function(ids, x) unique(x$filter_field_title[x$filter_field_id %in% ids])
+    layout <- metadata$filter_field_object_ids[match(selection$filter_field_id, metadata$filter_field_id)]
+    list(
+        added_fields = title(setdiff(current_fields, fields), metadata),
+        removed_fields = title(setdiff(fields, current_fields), selection),
+        missing = which(!found),
+        renamed = which(found & selection$filter_value_title != metadata$filter_value_title[at]),
+        new_title = metadata$filter_value_title[at],
+        layout = ifelse(is.na(layout), selection$filter_field_object_ids, layout)
+    )
 }
 
-fedstat_halves <- function(selection, rows) {
+# Shorten long value lists in user-facing messages.
+fedstat_list_values <- function(values, limit = 5L) {
+    values <- unique(values)
+    shown <- paste(utils::head(values, limit), collapse = "; ")
+    if (length(values) > limit) shown <- paste0(shown, "; and ", length(values) - limit, " more")
+    shown
+}
+
+# Split the field with the most values into contiguous groups of its sorted
+# value IDs. With max_cells, use the fewest groups that bring every part within
+# the limit (one value per group when even that is not enough; those parts are
+# split again on another field). Without it, halve: the probe after a failure.
+fedstat_partition <- function(selection, rows, max_cells = NULL) {
     selected <- selection[rows, , drop = FALSE]
-    counts <- table(selected$filter_field_id)
-    counts <- counts[names(counts) != "0" & counts > 1L]
+    all_counts <- table(selected$filter_field_id)
+    counts <- all_counts[names(all_counts) != "0" & all_counts > 1L]
     if (!length(counts)) {
         return(NULL)
     }
     field <- names(counts)[which.max(counts)]
+    size <- as.numeric(counts[[field]])
+    groups <- 2
+    if (!is.null(max_cells)) {
+        other <- prod(as.numeric(all_counts[names(all_counts) != field]))
+        per_group <- floor(max_cells / other)
+        groups <- if (per_group < 1) size else max(2, ceiling(size / per_group))
+    }
     ids <- sort(unique(selected$filter_value_id[selected$filter_field_id == field]), method = "radix")
-    first <- ids[seq_len(ceiling(length(ids) / 2))]
+    # Sizes of contiguous groups differ by at most one value.
+    group <- floor((seq_along(ids) - 1) * groups / length(ids)) + 1
     in_field <- selected$filter_field_id == field
-    structure(list(
-        rows[!in_field | selected$filter_value_id %in% first],
-        rows[!in_field | !selected$filter_value_id %in% first]
-    ), field = field)
+    structure(lapply(seq_len(groups), function(k) {
+        rows[!in_field | selected$filter_value_id %in% ids[group == k]]
+    }), field = field)
+}
+
+# Undo splits made after failures when none of their parts was saved: an
+# outage must not leave the job with more, smaller requests on later runs.
+fedstat_merge_failure_splits <- function(parts) {
+    merged <- character()
+    index <- 1L
+    while (index <= length(parts)) {
+        part <- parts[[index]]
+        reason <- part$split_reason
+        if (part$status == "split" && !is.null(reason) && reason != "size_limit") {
+            ids <- vapply(parts, `[[`, "", "id")
+            below <- which(startsWith(ids, paste0(part$id, ".")))
+            if (!any(vapply(parts[below], function(p) p$status == "complete", logical(1L)))) {
+                parts[[index]]$status <- "pending"
+                parts[[index]]$split_reason <- NULL
+                parts <- parts[-below]
+                merged <- c(merged, part$id)
+            }
+        }
+        index <- index + 1L
+    }
+    structure(parts, merged = merged)
 }
 
 fedstat_save <- function(object, path) {
@@ -629,9 +787,12 @@ fedstat_download_result <- function(manifest, path) {
         status = vapply(parts, `[[`, "", "status"), stringsAsFactors = FALSE
     )
     summary$rows <- vapply(parts, function(p) if (is.null(p$nrow)) NA_integer_ else as.integer(p$nrow), integer(1L))
+    unavailable <- manifest$unavailable
+    if (!is.null(unavailable)) unavailable <- unavailable[c("field_title", "value_title", "detected_at")]
     structure(list(
         path = path, indicator_id = manifest$indicator_id,
-        complete = isTRUE(manifest$validated) && all(summary$status == "complete"), parts = summary
+        complete = isTRUE(manifest$validated) && all(summary$status == "complete"), parts = summary,
+        unavailable = unavailable
     ), class = "fedstat_download")
 }
 
@@ -642,7 +803,28 @@ print.fedstat_download <- function(x, ...) {
         sum(x$parts$rows, na.rm = TRUE), " rows\n", x$path, "\n",
         sep = ""
     )
+    if (length(x$unavailable) && nrow(x$unavailable)) {
+        cat("No longer offered by Fedstat, so not downloaded: ",
+            fedstat_list_values(paste0(x$unavailable$field_title, ": ", x$unavailable$value_title)), "\n",
+            sep = ""
+        )
+    }
     invisible(x)
+}
+
+# A code keeps one label in the final table: the newest name Fedstat used.
+fedstat_relabel <- function(data, dictionary) {
+    if (is.null(dictionary) || !nrow(data)) {
+        return(data)
+    }
+    for (column in grep("_code$", names(data), value = TRUE)) {
+        id <- sub("_code$", "", column)
+        entries <- dictionary[dictionary$field_id == id, , drop = FALSE]
+        if (!id %in% names(data) || !nrow(entries)) next
+        label <- entries$value_title[match(data[[column]], entries$value_id)]
+        data[[id]] <- ifelse(is.na(label), data[[id]], label)
+    }
+    data
 }
 
 #' Collect a completed download into memory
@@ -674,6 +856,13 @@ fedstat_collect <- function(x, remove_parts = FALSE) {
         use.names = TRUE, fill = TRUE
     ))
     fedstat_check_data(data)
+    data <- fedstat_relabel(data, manifest$dictionary)
+    if (!is.null(manifest$unavailable) && nrow(manifest$unavailable)) {
+        message(
+            "Fedstat stopped offering some selected values during the download, so they are not in the table: ",
+            fedstat_list_values(paste0(manifest$unavailable$field_title, ": ", manifest$unavailable$value_title))
+        )
+    }
     if (remove_parts) fedstat_remove_parts(manifest, path)
     data
 }

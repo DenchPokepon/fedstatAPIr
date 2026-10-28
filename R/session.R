@@ -66,8 +66,9 @@ fedstat_refresh <- function(session, ..., timeout_seconds, attempts = 1L,
         stage = "token", before = before
     )
     html <- xml2::read_html(response$content, encoding = "UTF-8")
-    if (!is.null(session$selection)) {
-        fedstat_check_selection(session$selection, fedstat_metadata(html))
+    # Batch downloads apply their policy for changed filter definitions.
+    if (is.function(session$check_definitions)) {
+        session$check_definitions(fedstat_metadata(html))
     }
     fresh <- fedstat_token(
         html,

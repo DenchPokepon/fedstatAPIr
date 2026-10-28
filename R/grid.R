@@ -1,5 +1,5 @@
 # Browser-preview preparation and explicit empty-selection confirmation.
-fedstat_prepare_before_download <- function(data_ids, session, ..., timeout_seconds, before) {
+fedstat_preview <- function(data_ids, session, ..., timeout_seconds, before) {
     response <- fedstat_request("POST",
         paste0(session$base_url, "/indicator/dataGrid.do?id=", utils::URLencode(session$indicator_id, reserved = TRUE)),
         httr::content_type("application/x-www-form-urlencoded"),

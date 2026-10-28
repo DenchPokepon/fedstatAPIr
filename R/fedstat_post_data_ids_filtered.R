@@ -70,8 +70,8 @@ fedstat_post_data_ids_filtered <- function(data_ids,
         )
     }
     session$preview_empty <- FALSE
-    if (isTRUE(session$prepare_before_download)) {
-        session$preview_empty <- fedstat_prepare_before_download(data_ids, session, httr_verbose, ...,
+    if (isTRUE(session$preview_first)) {
+        session$preview_empty <- fedstat_preview(data_ids, session, httr_verbose, ...,
             timeout_seconds = timeout_seconds, before = before
         )
     }
@@ -135,7 +135,7 @@ fedstat_export_content <- function(response, format) {
     content <- response$content
     # Error text is classified, never echoed: it can contain session tokens.
     # ASCII signatures only: the byte prefix may end inside a UTF-8 character.
-    prefix <- tryCatch(rawToChar(head(content, 65536L)), error = function(e) "")
+    prefix <- tryCatch(rawToChar(utils::head(content, 65536L)), error = function(e) "")
     type <- response$headers[["content-type"]]
     if (is.null(type)) type <- ""
     type <- tolower(trimws(strsplit(paste0(type, ";"), ";", fixed = TRUE)[[1L]][1L]))

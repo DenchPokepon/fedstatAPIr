@@ -43,10 +43,10 @@ xml <- readBin(fixture("generic.xml"), "raw", file.info(fixture("generic.xml"))$
 
 # Older direct-export fixtures isolate their existing recovery policy; the actual
 # preview transport and empty-selection fallback are exercised below.
-real_preview <- internal("fedstat_prepare_before_download")
-unlockBinding("fedstat_prepare_before_download", ns)
-assign("fedstat_prepare_before_download", function(...) FALSE, ns)
-lockBinding("fedstat_prepare_before_download", ns)
+real_preview <- internal("fedstat_preview")
+unlockBinding("fedstat_preview", ns)
+assign("fedstat_preview", function(...) FALSE, ns)
+lockBinding("fedstat_preview", ns)
 
 # Script discovery does not depend on the twelfth script; metadata/session stay separate.
 ids <- mock("fedstat_request", function(...) response(html), fedstat_get_data_ids("31074"))
@@ -275,7 +275,7 @@ for (outage in c(FALSE, TRUE)) {
         },
         mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
             attr(data_ids, "fedstat_session")$before()
-            if (outage || nrow(fake_data(data_ids)) > 2L) internal("fedstat_error")("timeout", "transient", "export")
+            if (outage || nrow(fake_data(data_ids)) > 2L) internal("fedstat_error")("timeout", c("timeout", "transient"), "export")
             serialize(fake_data(data_ids), NULL)
         }, mock(
             "fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw),
@@ -959,9 +959,12 @@ local({
 })
 cat("Console, access cooldown and cleanup regression tests passed.\n")
 
-# Removed development names fail early rather than silently entering httr's dots.
-expect_error(fedstat_download("31074", cache_dir = tempfile(), max_cells = 250000), pattern = "Use max_nominal_cells_request")
-expect_error(fedstat_download("31074", cache_dir = tempfile(), max_combinations = 250000), pattern = "Use max_nominal_cells_request")
+# Misspelled or removed argument names fail early rather than silently entering httr's dots.
+for (name in c("max_cells", "path", "time_limit_seconds", "prepare_grid", "prepare_before_download")) {
+    args <- list(indicator_id = "31074", cache_dir = tempfile())
+    args[[name]] <- 1
+    expect_error(do.call(fedstat_download, args), pattern = paste0("Unknown argument: ", name))
+}
 
 # The advisory is strictly above 250,000 and has normal R warning semantics.
 local({
@@ -1076,9 +1079,9 @@ local({
     stopifnot(grepl("1 part ", line), grepl("99.9%", line, fixed = TRUE), !grepl("100.0%", line, fixed = TRUE))
 })
 
-unlockBinding("fedstat_prepare_before_download", ns)
-assign("fedstat_prepare_before_download", real_preview, ns)
-lockBinding("fedstat_prepare_before_download", ns)
+unlockBinding("fedstat_preview", ns)
+assign("fedstat_preview", real_preview, ns)
+lockBinding("fedstat_preview", ns)
 
 # Preview preparation shares configuration/session, repeats after token repair,
 # and sends exactly the selected filters (never the full indicator).
@@ -1118,7 +1121,7 @@ for (prepare in c(FALSE, TRUE)) {
             {
                 job <- fedstat_download("31074",
                     filters = "*", cache_dir = path,
-                    prepare_before_download = prepare, request_pause = 3, timeout_seconds = 2, verbose = FALSE,
+                    preview_first = prepare, request_pause = 3, timeout_seconds = 2, verbose = FALSE,
                     httr::user_agent("grid-test"), httr::config(connecttimeout = 7)
                 )
                 stopifnot(job$complete)
@@ -1157,7 +1160,7 @@ for (status in c(403L, 429L, 503L, 200L)) {
             {
                 expect_error(fedstat_download("31074",
                     filters = "*", cache_dir = path,
-                    prepare_before_download = TRUE, request_pause = 0, verbose = FALSE,
+                    preview_first = TRUE, request_pause = 0, verbose = FALSE,
                     retry_max_times = 1L, max_failures = 1L, recovery_max_times = 0
                 ), "fedstat_error")
             },
@@ -1167,7 +1170,7 @@ for (status in c(403L, 429L, 503L, 200L)) {
         stopifnot(length(m$parts) == 1L, m$parts[[1]]$status == "pending")
     })
 }
-expect_error(fedstat_download("31074", cache_dir = tempfile(), prepare_before_download = NA), pattern = "prepare_before_download")
+expect_error(fedstat_download("31074", cache_dir = tempfile(), preview_first = NA), pattern = "preview_first")
 cat("Preview preparation and nominal progress regression tests passed.\n")
 
 # Cancellation or expiry during preview never starts an SDMX request.
@@ -1193,7 +1196,7 @@ for (cancel in c(FALSE, TRUE)) {
                 action <- function() {
                     fedstat_download("31074",
                         filters = "*", cache_dir = path,
-                        prepare_before_download = TRUE, request_pause = 0, verbose = FALSE
+                        preview_first = TRUE, request_pause = 0, verbose = FALSE
                     )
                 }
                 if (cancel) {
@@ -1239,7 +1242,7 @@ for (prepare in c(FALSE, TRUE)) {
             {
                 job <- fedstat_download("31074",
                     filters = "*", cache_dir = path,
-                    prepare_before_download = prepare, request_pause = 0, verbose = FALSE
+                    preview_first = prepare, request_pause = 0, verbose = FALSE
                 )
                 stopifnot(
                     job$complete, nrow(fedstat_collect(job)) == 0L,
@@ -1249,7 +1252,8 @@ for (prepare in c(FALSE, TRUE)) {
             where = baseenv()
         ), where = asNamespace("httr"))
         expected <- if (prepare) c("page", "grid", "export") else c("page", "export", "grid")
-        stopifnot(identical(stages, c(expected, "page", "page")))
+        # Only the completion check reads the indicator page again; empty parts do not.
+        stopifnot(identical(stages, c(expected, "page")))
         m <- readRDS(file.path(path, "manifest.rds"))
         stopifnot(m$parts[[1L]]$empty_evidence == "preview_zero_after_export_302")
         mock(
@@ -1329,12 +1333,7 @@ local({
         internal("fedstat_refresh")(internal("fedstat_session")(x), timeout_seconds = 1)
     })
 })
-for (name in c("path", "time_limit_seconds", "prepare_grid")) {
-    args <- list(indicator_id = "31074", cache_dir = tempfile())
-    args[[name]] <- "old"
-    expect_error(do.call(fedstat_download, args), pattern = "Rename")
-}
-stopifnot(names(formals(fedstat_download))[match("token_policy", names(formals(fedstat_download))) + 1L] == "prepare_before_download")
+stopifnot(names(formals(fedstat_download))[match("token_policy", names(formals(fedstat_download))) + 1L] == "preview_first")
 cat("Empty selection, cache resume and opaque identifier tests passed.\n")
 
 # Fallback checks obey cancellation, access refusal and time allowance. None can
@@ -1394,35 +1393,54 @@ for (failure in c("access", "interrupt", "deadline", "invalid")) {
     })
 }
 
-# Dictionary drift: compare actual definitions, not page dates or row positions.
+# Filter definitions: IDs identify what is requested, titles are labels, and the
+# row/column layout is presentation. Page dates and row positions are ignored.
+area_line <- "2: {title: 'Area', values: {1: {title: 'First'}, 2: {title: 'Second'}}}"
+page <- function(from = area_line, to = area_line, extra = list()) {
+    text <- sub(from, to, rawToChar(html), fixed = TRUE)
+    for (pair in extra) text <- sub(pair[[1]], pair[[2]], text, fixed = TRUE)
+    charToRaw(enc2utf8(text))
+}
 local({
     frozen <- internal("fedstat_download_selection")(ids, list(Year = "2024", Area = "First"))
-    check <- internal("fedstat_check_selection")
-    check(frozen, ids[nrow(ids):1, ])
-    added <- ids
-    added <- rbind(added, transform(ids[ids$filter_value_id == "2025", ], filter_value_id = "2026", filter_value_title = "2026"))
-    check(frozen, added)
-    check(frozen, ids[ids$filter_value_id != "2025", ]) # unselected value
-    for (column in names(frozen)) {
-        changed <- ids
-        changed[changed$filter_value_id == "2024", column] <- "changed"
-        expect_error(check(frozen, changed), "fedstat_dictionary_changed")
-    }
-    expect_error(check(frozen, ids[ids$filter_value_id != "2024", ]), "fedstat_dictionary_changed")
+    compare <- internal("fedstat_compare_definitions")
+    same <- compare(frozen, ids[nrow(ids):1, ])
+    stopifnot(
+        !length(same$missing), !length(same$renamed), !length(same$added_fields),
+        !length(same$removed_fields), identical(same$layout, frozen$filter_field_object_ids)
+    )
+    # Unselected values may appear or disappear.
+    added <- rbind(ids, transform(ids[ids$filter_value_id == "2025", ], filter_value_id = "2026", filter_value_title = "2026"))
+    stopifnot(!length(compare(frozen, added)$missing), !length(compare(frozen, ids[ids$filter_value_id != "2025", ])$missing))
+    moved <- ids
+    moved$filter_field_object_ids[moved$filter_field_id == "1"] <- "lineObjectIds"
+    stopifnot(all(compare(frozen, moved)$layout[frozen$filter_field_id == "1"] == "lineObjectIds"))
+    renamed <- ids
+    renamed$filter_value_title[renamed$filter_value_id == "2024"] <- "2024 (revised)"
+    stopifnot(identical(frozen$filter_value_id[compare(frozen, renamed)$renamed], "2024"))
+    stopifnot(identical(frozen$filter_value_id[compare(frozen, ids[ids$filter_value_id != "2024", ])$missing], "2024"))
+    extra <- rbind(ids, data.frame(
+        filter_field_id = "3", filter_field_title = "Sex", filter_value_id = "1",
+        filter_value_title = "All", filter_field_object_ids = "lineObjectIds"
+    ))
+    stopifnot(
+        identical(compare(frozen, extra)$added_fields, "Sex"),
+        identical(compare(frozen, ids[ids$filter_field_id != "2", ])$removed_fields, "Area")
+    )
 
+    # Token renewal applies the download's policy and keeps the old token on failure.
     session <- internal("fedstat_session")(ids)
-    session$selection <- frozen
     token <- session$token
-    changed_html <- charToRaw(sub("title: '2024'", "title: 'revised'", rawToChar(html), fixed = TRUE))
+    session$check_definitions <- function(current) internal("fedstat_dictionary_changed")()
     mock(
-        "fedstat_request", function(...) response(changed_html),
+        "fedstat_request", function(...) response(html),
         expect_error(internal("fedstat_refresh")(session, timeout_seconds = 1), "fedstat_dictionary_changed")
     )
     stopifnot(identical(session$token, token))
-    session$selection <- NULL
+    session$check_definitions <- NULL
 })
 
-# Classification snapshots persist code meanings, including codes absent from a later export.
+# Export code lists: codes are identity; a renamed code keeps its newest label.
 local({
     check <- internal("fedstat_check_dictionary")
     dictionary <- as.data.frame(fedstat_parse_sdmx_to_table(xml, return_type = "dictionary"))
@@ -1431,105 +1449,174 @@ local({
     later$value_id <- "002"
     later$value_title <- "Another area"
     combined <- check(dictionary, later)
-    stopifnot(nrow(combined) == 2L)
-    for (column in c("field_id", "field_title", "value_title")) {
-        changed <- dictionary
-        changed[[column]] <- "changed"
-        expect_error(check(combined, changed), "fedstat_dictionary_changed")
-    }
-    # A field rename is detected even when exports contain disjoint codes.
-    later$field_title <- "Changed area classification"
-    expect_error(check(dictionary, later), "fedstat_dictionary_changed")
+    stopifnot(nrow(combined) == 2L, is.null(attr(combined, "renamed")))
+    renamed <- dictionary
+    renamed$value_title <- "First (new name)"
+    renamed$field_title <- "Area, revised"
+    result <- check(combined, renamed)
+    stopifnot(
+        identical(attr(result, "renamed")$new_title, "First (new name)"), nrow(result) == 2L,
+        result$value_title[result$value_id == "001"] == "First (new name)"
+    )
+    other <- dictionary
+    other$field_id <- "SEX"
+    expect_error(check(combined, other), "fedstat_dictionary_changed")
+    # One export contradicting itself is damaged and retryable, not a definition change.
+    expect_error(check(NULL, rbind(dictionary, dictionary)), "fedstat_transient")
     unknown <- charToRaw(sub('concept="AREA" value="001"', 'concept="AREA" value="999"', rawToChar(xml), fixed = TRUE))
-    expect_error(internal("fedstat_parse_sdmx")(unknown, check_dictionary = function(x) NULL), "fedstat_dictionary_changed")
+    expect_error(internal("fedstat_parse_sdmx")(unknown, check_dictionary = function(x) NULL), "fedstat_inconsistent")
 })
 
-# Drift at renewal, empty confirmation or final completion must never report success.
-for (scenario in c("token", "empty", "final")) {
+# Changes seen at completion: a new filter field stops (also on resume); a new
+# layout passes silently; a renamed value passes with a warning.
+for (scenario in c("field", "layout", "renamed")) {
     local({
         path <- tempfile()
         on.exit(unlink(path, recursive = TRUE))
-        pages <- exports <- 0L
-        changed_html <- charToRaw(sub("title: '2024'", "title: 'revised'", rawToChar(html), fixed = TRUE))
+        pages <- 0L
+        later <- switch(scenario,
+            field = page(to = paste0(area_line, ",\n3: {title: 'Sex', values: {1: {title: 'All'}}}")),
+            layout = page(extra = list(c("left_columns: [2]", "left_columns: [2, 1]"), c("top_columns: [1]", "top_columns: []"))),
+            renamed = page(extra = list(c("title: '2024'", "title: '2024 (revised)'")))
+        )
         verb <- function(method, url, ...) {
             if (method == "GET") {
                 pages <<- pages + 1L
-                return(response(if (pages == 1L) html else changed_html))
-            }
-            if (grepl("dataGrid", url)) {
-                return(response(if (scenario == "empty") '{"results":[],"__count":0}' else '{"results":[{}],"__count":1}'))
-            }
-            exports <<- exports + 1L
-            if (scenario != "final") {
-                return(response("", 302L))
+                return(response(if (pages == 1L) html else later))
             }
             response(xml, type = "text/xml")
         }
-        mock("VERB", verb, mock(
-            "fedstat_backoff", function(...) 0,
-            expect_error(fedstat_download("31074",
-                filters = "*", cache_dir = path,
-                request_pause = 0, verbose = FALSE
-            ), "fedstat_dictionary_changed")
-        ), where = asNamespace("httr"))
-        m <- readRDS(file.path(path, "manifest.rds"))
-        stopifnot(!m$validated, exports == 1L, !dir.exists(file.path(path, ".lock")))
-        if (scenario == "final") {
-            stopifnot(m$parts[[1]]$status == "complete", !is.null(m$dictionary))
-            checksum <- m$parts[[1]]$checksum
-            # A failed final check is not bypassed just because all files exist.
-            mock("VERB", verb,
-                expect_error(fedstat_download("31074",
-                    filters = "*", cache_dir = path,
-                    request_pause = 0, verbose = FALSE
-                ), "fedstat_dictionary_changed"),
-                where = asNamespace("httr")
+        warnings <- character()
+        run <- function() {
+            withCallingHandlers(
+                fedstat_download("31074", filters = "*", cache_dir = path, request_pause = 0, verbose = FALSE),
+                warning = function(w) {
+                    warnings <<- c(warnings, conditionMessage(w))
+                    invokeRestart("muffleWarning")
+                }
             )
-            stopifnot(identical(unname(tools::md5sum(file.path(path, m$parts[[1]]$file))), checksum))
-        } else {
-            stopifnot(m$parts[[1]]$status == "pending")
         }
-        expect_error(fedstat_collect(path), pattern = "incomplete")
+        mock("VERB",
+            verb,
+            {
+                if (scenario == "field") {
+                    expect_error(run(), "fedstat_dictionary_changed")
+                    m <- readRDS(file.path(path, "manifest.rds"))
+                    stopifnot(!m$validated, m$parts[[1]]$status == "complete")
+                    expect_error(run(), "fedstat_dictionary_changed")
+                    expect_error(fedstat_collect(path), pattern = "incomplete")
+                } else {
+                    stopifnot(run()$complete)
+                    m <- readRDS(file.path(path, "manifest.rds"))
+                    if (scenario == "layout") stopifnot(!length(warnings), is.null(m$renamed))
+                    if (scenario == "renamed") {
+                        stopifnot(
+                            length(warnings) == 1L, grepl("2024 -> 2024 (revised)", warnings, fixed = TRUE),
+                            identical(m$renamed$new_title, "2024 (revised)")
+                        )
+                    }
+                }
+            },
+            where = asNamespace("httr")
+        )
     })
 }
+
+# A selected value disappears mid-download: unfinished parts continue without it.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    current <- ids
+    warnings <- character()
+    run <- function() {
+        withCallingHandlers(
+            fedstat_download("31074",
+                filters = "*", cache_dir = path, max_nominal_cells_request = 1,
+                request_pause = 0, verbose = FALSE, recovery_max_times = 0
+            ),
+            warning = function(w) {
+                warnings <<- c(warnings, conditionMessage(w))
+                invokeRestart("muffleWarning")
+            }
+        )
+    }
+    requested <- list()
+    mock(
+        "fedstat_read_ids", function(..., before = function() NULL) {
+            before()
+            current
+        },
+        mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
+            attr(data_ids, "fedstat_session")$before()
+            requested[[length(requested) + 1L]] <<- data_ids[data_ids$filter_field_id == "2", "filter_value_id"]
+            serialize(fake_data(data_ids), NULL)
+        }, mock("fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw), {
+            expire_after_part(expect_error(run(), "fedstat_time_limit"))
+            current <- ids[!(ids$filter_field_id == "2" & ids$filter_value_id == "2"), ]
+            job <- run()
+            stopifnot(job$complete, length(warnings) == 1L, grepl("Area: Second", warnings))
+            stopifnot(identical(job$unavailable$value_title, "Second"))
+            stopifnot(!any(vapply(requested[-1], function(x) "2" %in% x, logical(1L))))
+            m <- readRDS(file.path(path, "manifest.rds"))
+            evidence <- vapply(m$parts, function(p) if (is.null(p$empty_evidence)) "" else p$empty_evidence, "")
+            stopifnot(sum(evidence == "values_withdrawn") == 1L)
+            data <- withCallingHandlers(fedstat_collect(job), message = function(m) {
+                stopifnot(grepl("Area: Second", conditionMessage(m)))
+                invokeRestart("muffleMessage")
+            })
+            stopifnot(nrow(data) == 2L, all(data$Area_code == "1"))
+            stopifnot(any(grepl("Area: Second", capture.output(print(job)))))
+        }))
+    )
+})
 cat("Dictionary drift regression tests passed.\n")
 
-# A changed export dictionary is caught before the second shard is saved,
-# including when resuming a checkpoint made before dictionary snapshots existed.
+# Fedstat renames a category in both the page and its exports while a download
+# is paused, including for checkpoints made before dictionary snapshots existed:
+# the job continues and every code gets its newest label in the final table.
 local({
     path <- tempfile()
     on.exit(unlink(path, recursive = TRUE))
     exports <- 0L
+    renamed <- FALSE
     verb <- function(method, url, ..., body = NULL) {
         if (method == "GET") {
-            return(response(html))
+            return(response(if (renamed) page(extra = list(c("title: 'First'", "title: 'Changed area'"))) else html))
         }
         exports <<- exports + 1L
+        if (!renamed && exports > 1L) {
+            return(response("Unavailable", 503L))
+        }
         document <- xml2::read_xml(xml)
         obs <- xml2::xml_find_all(document, "//*[local-name()='Obs']")
-        xml2::xml_remove(obs[if (exports == 1L) 2L else 1L])
-        if (exports > 1L) {
-            node <- xml2::xml_find_first(document, "//*[local-name()='Description']")
-            xml2::xml_set_text(node, "Changed area")
-        }
+        xml2::xml_remove(obs[if (renamed) 1L else 2L])
+        if (renamed) xml2::xml_set_text(xml2::xml_find_first(document, "//*[local-name()='Description']"), "Changed area")
         response(charToRaw(as.character(document)), type = "text/xml")
     }
     run <- function() {
         fedstat_download("31074",
-            filters = list(Year = "*", Area = "First"),
-            cache_dir = path, max_nominal_cells_request = 1, request_pause = 0, verbose = FALSE
+            filters = list(Year = "*", Area = "First"), cache_dir = path,
+            max_nominal_cells_request = 1, request_pause = 0, retry_max_times = 1,
+            recovery_max_times = 0, verbose = FALSE
         )
     }
     mock("VERB",
         verb,
         {
-            expect_error(run(), "fedstat_dictionary_changed")
+            expect_error(run(), "fedstat_transient")
             m <- readRDS(file.path(path, "manifest.rds"))
             stopifnot(sum(vapply(m$parts, function(p) p$status == "complete", logical(1))) == 1L)
             m$dictionary <- NULL
             saveRDS(m, file.path(path, "manifest.rds"))
-            expect_error(run(), "fedstat_dictionary_changed")
-            expect_error(fedstat_cleanup(path), pattern = "incomplete")
+            renamed <- TRUE
+            warnings <- character()
+            job <- withCallingHandlers(run(), warning = function(w) {
+                warnings <<- c(warnings, conditionMessage(w))
+                invokeRestart("muffleWarning")
+            })
+            stopifnot(job$complete, length(warnings) == 2L, all(grepl("First -> Changed area", warnings)))
+            data <- fedstat_collect(job)
+            stopifnot(nrow(data) == 2L, all(data$AREA == "Changed area"), all(data$AREA_code == "001"))
         },
         where = asNamespace("httr")
     )
@@ -1581,3 +1668,122 @@ local({
     expect_error(internal("fedstat_parse_sdmx")(xml, selection = wrong_part), "fedstat_dictionary_changed")
 })
 cat("Export selection mapping tests passed.\n")
+
+# Size splits use the fewest groups that fit: the CPI shape (119 x 9 x 1105 =
+# 1,183,455 cells) becomes 12 parts of at most 99,603, not 16 halves of ~74k.
+local({
+    shape <- c("0" = 1, "57831" = 119, "57937" = 9, "58273" = 1105, "57956" = 1)
+    selection <- do.call(rbind, lapply(names(shape), function(field) {
+        data.frame(
+            filter_field_id = field, filter_field_title = field,
+            filter_value_id = sprintf("%04d", seq_len(shape[[field]])), filter_value_title = "x",
+            filter_field_object_ids = "lineObjectIds", stringsAsFactors = FALSE
+        )
+    }))
+    partition <- internal("fedstat_partition")
+    check_groups <- function(groups, rows, max_cells) {
+        cells <- vapply(groups, function(g) prod(table(selection$filter_field_id[g])), numeric(1L))
+        stopifnot(all(cells <= max_cells), sum(cells) == prod(table(selection$filter_field_id[rows])))
+        field <- attr(groups, "field")
+        values <- unlist(lapply(groups, function(g) selection$filter_value_id[g][selection$filter_field_id[g] == field]))
+        stopifnot(!anyDuplicated(values), setequal(values, selection$filter_value_id[rows][selection$filter_field_id[rows] == field]))
+        sizes <- lengths(lapply(groups, function(g) which(selection$filter_field_id[g] == field)))
+        stopifnot(max(sizes) - min(sizes) <= 1L)
+    }
+    rows <- seq_len(nrow(selection))
+    groups <- partition(selection, rows, 100000)
+    stopifnot(length(groups) == 12L, attr(groups, "field") == "58273")
+    check_groups(groups, rows, 99603)
+    # When one field cannot reach the limit, each value becomes a part to split again.
+    groups <- partition(selection, rows, 500)
+    stopifnot(length(groups) == 1105L)
+    check_groups(groups, rows, 1071)
+    stopifnot(length(partition(selection, groups[[1]], 500)) == 3L)
+    # Without a limit: halving, the probe after a failed request.
+    stopifnot(length(partition(selection, rows)) == 2L)
+    # Ties choose the first field ID, so plans are reproducible.
+    stopifnot(attr(partition(ids, seq_len(nrow(ids)), 2), "field") == "1")
+})
+
+# Failure splits without saved data are rejoined; size splits and splits with saved parts stay.
+local({
+    part <- function(id, status, reason = NULL) list(id = id, rows = 1L, depth = 0L, status = status, split_reason = reason)
+    parts <- list(
+        part("1", "split", "size_limit"),
+        part("1.1", "split", "timeout"), part("1.1.1", "split", "timeout"),
+        part("1.1.1.1", "pending"), part("1.1.1.2", "pending"), part("1.1.2", "pending"),
+        part("1.2", "split", "truncated"), part("1.2.1", "complete"), part("1.2.2", "pending"),
+        part("1.10", "pending")
+    )
+    merged <- internal("fedstat_merge_failure_splits")(parts)
+    stopifnot(
+        identical(attr(merged, "merged"), "1.1"),
+        identical(vapply(merged, `[[`, "", "id"), c("1", "1.1", "1.2", "1.2.1", "1.2.2", "1.10")),
+        merged[[2]]$status == "pending", is.null(merged[[2]]$split_reason)
+    )
+})
+
+# Timeouts and gateway timeouts hint at size; refused or dropped connections do not.
+local({
+    curl_failure <- function(text) {
+        tryCatch(mock("VERB", function(...) stop(simpleError(text, quote(curl_fetch_memory(url, handle)))),
+            internal("fedstat_request")("GET", "http://example.invalid",
+                handle = httr::handle("http://example.invalid"), timeout_seconds = 1, stage = "export"
+            ),
+            where = asNamespace("httr")
+        ), error = identity)
+    }
+    stopifnot(
+        inherits(curl_failure("Timeout was reached"), "fedstat_timeout"),
+        inherits(curl_failure("Operation timed out after 300000 milliseconds with 0 bytes received"), "fedstat_timeout"),
+        !inherits(curl_failure("Connection timed out after 20001 milliseconds"), "fedstat_timeout"),
+        !inherits(curl_failure("Empty reply from server"), "fedstat_timeout"),
+        inherits(curl_failure("Empty reply from server"), "fedstat_transient")
+    )
+    gateway <- tryCatch(internal("fedstat_response")(response("", 504L), "export"), error = identity)
+    stopifnot(inherits(gateway, "fedstat_timeout"), inherits(gateway, "fedstat_transient"))
+    stopifnot(!inherits(tryCatch(internal("fedstat_response")(response("", 503L), "export"), error = identity), "fedstat_timeout"))
+})
+
+# An outage pauses instead of splitting; a later healthy run rejoins earlier timeout splits.
+local({
+    path <- tempfile()
+    on.exit(unlink(path, recursive = TRUE))
+    failure <- "outage"
+    mock(
+        "fedstat_read_ids", function(..., before = function() NULL) {
+            before()
+            ids
+        },
+        mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
+            attr(data_ids, "fedstat_session")$before()
+            if (failure == "outage") internal("fedstat_error")("Empty reply from server", "transient", "export")
+            if (failure == "timeout") internal("fedstat_error")("Timeout was reached", c("timeout", "transient"), "export")
+            serialize(fake_data(data_ids), NULL)
+        }, mock(
+            "fedstat_parse_sdmx", function(data_raw, ...) unserialize(data_raw),
+            mock("fedstat_backoff", function(...) 0, {
+                run <- function() {
+                    fedstat_download("31074",
+                        filters = "*", cache_dir = path, request_pause = 0, recovery_pause = 0,
+                        max_failures = 20L, verbose = FALSE, recovery_max_times = 1
+                    )
+                }
+                expect_error(run(), "fedstat_transient")
+                events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+                types <- vapply(events, `[[`, "", "event")
+                stopifnot("RECOVER" %in% types, !"SPLIT" %in% types, length(readRDS(file.path(path, "manifest.rds"))$parts) == 1L)
+                failure <- "timeout"
+                expect_error(run(), "fedstat_transient")
+                m <- readRDS(file.path(path, "manifest.rds"))
+                stopifnot(length(m$parts) > 1L, m$parts[[1]]$split_reason == "timeout")
+                failure <- "none"
+                job <- run()
+                events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
+                types <- vapply(events, `[[`, "", "event")
+                stopifnot(job$complete, identical(job$parts$part, "1"), "MERGE" %in% types, nrow(fedstat_collect(job)) == 4L)
+            })
+        ))
+    )
+})
+cat("Splitting and outage recovery tests passed.\n")

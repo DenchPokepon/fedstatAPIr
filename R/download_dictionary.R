@@ -1,39 +1,50 @@
 # Compare definitions, never the page's update date. Website filter IDs and
 # SDMX classification codes use different namespaces; do not equate them.
-fedstat_dictionary_changed <- function() {
+fedstat_dictionary_changed <- function(what = "Fedstat changed the filters or classifications of this indicator.") {
     fedstat_error(
-        paste0(
-            "Fedstat changed or returned inconsistent filter or classification definitions. ",
-            "Your saved parts are retained. Start a new download in another cache_dir ",
-            "to avoid mixing definitions."
+        paste(
+            what, "Parts saved so far can't be continued safely and are kept.",
+            "Start a new download in another folder (cache_dir)."
         ), "dictionary_changed", "validation"
     )
 }
 
+# One export contradicting itself is a damaged response, not a definition change.
+fedstat_inconsistent_export <- function() {
+    fedstat_error(
+        "Fedstat returned an inconsistent export (codes missing from its own code lists).",
+        c("inconsistent", "transient"), "parse"
+    )
+}
+
+# Codes identify categories; their labels may be renamed. A changed set of
+# classifications changes the table itself. Field titles are not compared.
 fedstat_check_dictionary <- function(previous, current) {
     if (anyNA(current[c("field_id", "value_id", "value_title")]) ||
         anyDuplicated(current[c("field_id", "value_id")])) {
-        fedstat_dictionary_changed()
+        fedstat_inconsistent_export()
     }
     if (is.null(previous)) {
         return(current)
     }
     if (!setequal(previous$field_id, current$field_id)) fedstat_dictionary_changed()
-    fields <- match(previous$field_id, current$field_id)
-    old_titles <- previous$field_title
-    new_titles <- current$field_title[fields]
-    if (any(!is.na(old_titles) & (is.na(new_titles) | old_titles != new_titles))) fedstat_dictionary_changed()
     key <- function(x) fedstat_keys(x, c("field_id", "value_id"))
     index <- match(key(previous), key(current))
     shared <- which(!is.na(index))
-    for (column in c("field_title", "value_title")) {
-        old <- previous[[column]][shared]
-        new <- current[[column]][index[shared]]
-        if (any(!is.na(old) & (is.na(new) | old != new))) fedstat_dictionary_changed()
-    }
+    old <- previous$value_title[shared]
+    new <- current$value_title[index[shared]]
+    changed <- shared[!is.na(old) & old != new]
     # Preserve definitions absent from this export, so reappearing codes are
-    # still checked. An export need not contain every value of a classification.
-    rbind(current, previous[is.na(index), , drop = FALSE])
+    # still compared. An export need not contain every value of a classification.
+    result <- rbind(current, previous[is.na(index), , drop = FALSE])
+    if (length(changed)) {
+        attr(result, "renamed") <- data.frame(
+            field_id = previous$field_id[changed], value_id = previous$value_id[changed],
+            old_title = previous$value_title[changed], new_title = current$value_title[index[changed]],
+            stringsAsFactors = FALSE
+        )
+    }
+    result
 }
 
 # Existing checkpoints predate the dictionary snapshot. Recover the code/label
@@ -57,7 +68,10 @@ fedstat_saved_dictionary <- function(manifest, path) {
             ))
         })
         current <- do.call(rbind, current)
-        if (!is.null(current)) dictionary <- fedstat_check_dictionary(dictionary, current)
+        if (!is.null(current)) {
+            dictionary <- fedstat_check_dictionary(dictionary, current)
+            attr(dictionary, "renamed") <- NULL
+        }
     }
     dictionary
 }

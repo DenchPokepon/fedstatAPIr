@@ -1,7 +1,7 @@
 # Use HTML text and verification controls; ignore script vocabulary.
 # Return a fixed evidence label so diagnostics cannot leak response credentials.
 fedstat_access_marker <- function(content) {
-    prefix <- tryCatch(rawToChar(head(content, 65536L)), error = function(e) "")
+    prefix <- tryCatch(rawToChar(utils::head(content, 65536L)), error = function(e) "")
     if (!grepl("captcha|access denied|forbidden|verify|human|turnstile", prefix,
         ignore.case = TRUE, useBytes = TRUE
     )) {

@@ -198,18 +198,18 @@ These names belong to the unreleased batch API. Update existing development scri
 | --- | --- |
 | `path` | `cache_dir` |
 | `time_limit_seconds` | `total_time_limit_seconds` |
-| `prepare_grid` | `prepare_before_download` |
+| `prepare_grid` | `preview_first` |
 
 Old names raise an early error listing the replacements; they are not silently
 passed to httr. Reuse the same directory: no checkpoint migration or redownload
 is needed. The result's `$path` field remains unchanged. Logs now use
-`total_time_limit_seconds` and `prepare_before_download`. The six released
+`total_time_limit_seconds` and `preview_first`. The six released
 function signatures are unchanged. Indicator IDs are opaque nonempty codes;
 numeric input is still accepted for convenience. URL components are encoded.
 
 ## Preparation and empty selections
 
-`prepare_before_download = TRUE`, immediately after `token_policy`, applies each
+`preview_first = TRUE`, immediately after `token_policy`, applies each
 part's filters to `dataGrid.do` before every SDMX attempt on the same session.
 Some server states may require this sequence. It adds a data request and shares
 pacing, configuration and total time; it is disabled by default. Nonempty preview
