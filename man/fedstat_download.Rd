@@ -6,22 +6,23 @@
 \usage{
 fedstat_download(
   indicator_id,
-  ...,
   filters = list(),
-  cache_dir,
-  max_nominal_cells_request = 1e+05,
-  token_policy = c("reuse", "refresh"),
+  cache_dir = NULL,
+  ...,
+  max_nominal_cells_request = 50000,
+  allow_large_requests = FALSE,
   preview_first = FALSE,
+  total_time_limit_seconds = 3600,
   timeout_seconds = 180,
   retry_max_times = 2L,
   request_pause = c(30, 60),
-  max_depth = 20L,
-  max_failures = 6L,
   verbose = TRUE,
   log_file = file.path(cache_dir, "download.log"),
+  token_policy = c("reuse", "refresh"),
+  max_depth = 20L,
+  max_failures = 6L,
   recovery_max_times = 3L,
   recovery_pause = 60,
-  total_time_limit_seconds = 3600,
   access_pause = 300
 )
 }
@@ -29,30 +30,36 @@ fedstat_download(
 \item{indicator_id}{Indicator code from its page address, for example \code{"31074"}
 for \verb{https://www.fedstat.ru/indicator/31074}.}
 
-\item{...}{For advanced users: httr settings applied to every request, for
-example \code{httr::user_agent("my-project")} or \code{httr::config(connecttimeout = 20)}.
-Any other unnamed or unknown argument is an error.}
-
 \item{filters}{A named list: filter names and the values to download, both in
 Russian, as shown on Fedstat. \code{"*"} selects every value of a filter. Every
 filter with more than one value must be listed. Case and extra spaces are
 ignored. The single string \code{"*"} instead of a list selects everything.}
 
 \item{cache_dir}{Folder for the saved parts, created if needed. Use one folder
-per download and keep it until you have collected and saved the table.}
+per download and keep it until you have collected and saved the table. If
+omitted, a folder such as \verb{fedstat-31074-1a2b3c4d} is created in the current
+folder: its name depends on the indicator and the filters, so running the
+same call again continues in the same folder. The full path is shown.}
+
+\item{...}{For advanced users: httr settings applied to every request, for
+example \code{httr::user_agent("my-project")} or \code{httr::config(connecttimeout = 20)}.
+Any other unnamed or unknown argument is an error. Arguments after \code{...}
+must be named in full.}
 
 \item{max_nominal_cells_request}{Largest number of filter combinations in one
-request. Default 100,000. Smaller requests are usually more reliable but the
-download needs more of them. Values above 250,000 give a warning.}
+request. Default 50,000. Above 50,000 you get a warning, above 100,000
+\code{allow_large_requests = TRUE} is required, and 250,000 is the maximum.}
 
-\item{token_policy}{\code{"reuse"} (default) keeps the download session's token until
-Fedstat rejects it; \code{"refresh"} gets a new one before every request, which costs
-an extra page request each time.}
+\item{allow_large_requests}{\code{TRUE} turns off the warning for
+\code{max_nominal_cells_request} above 50,000 and allows up to 250,000.}
 
 \item{preview_first}{If \code{TRUE}, ask Fedstat to show each part's table first,
 as its website does when you press "Apply", and then download it. Fedstat
 sometimes only returns data after this step. Default \code{FALSE}: it adds a
 request per attempt and can roughly double the download time.}
+
+\item{total_time_limit_seconds}{Time for this run in seconds, including
+pauses; default one hour. Run the same call again to continue.}
 
 \item{timeout_seconds}{Longest wait for one request, in seconds.}
 
@@ -62,24 +69,25 @@ pauses, including the first.}
 \item{request_pause}{Seconds between requests: one number, or two numbers for a
 random pause in that range.}
 
-\item{max_depth}{How many times a part may be split again.}
-
-\item{max_failures}{Failed data requests in a row before the download pauses to
-let Fedstat recover.}
-
 \item{verbose}{\code{TRUE} (default) shows short progress messages, \code{FALSE} hides
 them, \code{"detailed"} shows every event. Warnings and errors are always shown.}
 
 \item{log_file}{Diagnostic log, by default \code{download.log} inside \code{cache_dir};
 \code{NULL} turns it off. Attach it when reporting a problem.}
 
+\item{token_policy}{\code{"reuse"} (default) keeps the download session's token until
+Fedstat rejects it; \code{"refresh"} gets a new one before every request, which costs
+an extra page request each time.}
+
+\item{max_depth}{How many times a part may be split again.}
+
+\item{max_failures}{Failed data requests in a row before the download pauses to
+let Fedstat recover.}
+
 \item{recovery_max_times}{How many recovery pauses are allowed since the last
 saved part before the run stops. \code{0} stops after ordinary retries.}
 
 \item{recovery_pause}{First recovery pause in seconds; it doubles each time.}
-
-\item{total_time_limit_seconds}{Time for this run in seconds, including
-pauses; default one hour. Run the same call again to continue.}
 
 \item{access_pause}{Seconds to wait when Fedstat seems to check or refuse
 access; default five minutes, doubling if it happens again. No check is
@@ -118,8 +126,11 @@ folder can stay marked as in use; the error message says how to clear it.
  Size is counted in filter combinations, the product of
 the number of selected values of every filter, not in rows: many
 combinations can be empty. A part over the limit is split along its largest
-filter into the fewest groups that fit. There is no universally safe size;
-it depends on the indicator and on how busy Fedstat is.
+filter into the fewest groups that fit. Fedstat checks every combination,
+even empty ones, so large requests load it for all its users and often
+fail. Every function that requests data uses the same limits: a warning
+above 50,000 combinations, \code{allow_large_requests = TRUE} needed above
+100,000, and no request above 250,000.
 }
 
 \section{Reliability}{
@@ -167,6 +178,11 @@ headers, cookies, tokens or response bodies.
 \dontrun{
 job <- fedstat_download("31074", filters = "*", cache_dir = "cpi-download")
 data <- fedstat_collect(job)
+
+# Filter names as on the indicator page (English placeholders: CRAN needs ASCII)
+filters <- list("Year" = "2024", "Period" = "January", "Territory" = "*")
+# Without cache_dir, a folder is chosen for you and its path is shown
+job <- fedstat_download("31074", filters)
 }
 }
 \seealso{

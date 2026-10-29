@@ -2,12 +2,18 @@
 #'
 #' @description **Deprecated: use [fedstat_download()] and [fedstat_collect()].**
 #'   This function sends the whole selection to Fedstat as one request, with no
-#'   size limit, pauses or saved progress. Large selections are slow, often fail
-#'   and put heavy load on Fedstat. It is kept so that existing scripts keep
-#'   working, and warns on every call. Replace
-#'   `data <- fedstat_data_load_with_filters("31074", filters = filters)` with
-#'   `job <- fedstat_download("31074", filters = filters, cache_dir = "my-download")`
-#'   and `data <- fedstat_collect(job)`.
+#'   pauses or saved progress. Large selections are slow, often fail and put
+#'   heavy load on Fedstat. It is kept so that existing scripts keep working.
+#'   Replace `data <- fedstat_data_load_with_filters("31074", filters = filters)`
+#'   with `job <- fedstat_download("31074", filters = filters)` and
+#'   `data <- fedstat_collect(job)`.
+#'
+#'   Size is the number of filter combinations: the product of the number of
+#'   selected values of every filter. Up to 50,000 combinations, a deprecation
+#'   message is shown once per session. Above 50,000, every call warns. Above
+#'   100,000, the function stops unless `allow_large_requests = TRUE`, and above
+#'   250,000 it always stops: such requests load Fedstat for all its users and
+#'   rarely succeed.
 #'
 #'   This function is a wrapper for the other functions of the package
 #'   to provide a simple one function API for fedstat.ru
@@ -52,6 +58,9 @@
 #'   are retained after a successful GET; retries do not nest.
 #' @param loading_steps_verbose logical, print data loading steps to console
 #' @inheritParams fedstat_parse_sdmx_to_table
+#' @param allow_large_requests logical. `TRUE` allows selections of up to
+#'   250,000 filter combinations instead of 100,000. Larger selections are
+#'   always refused; use [fedstat_download()] for them.
 #'
 #' @return data.frame with filtered indicator data from fedstat.ru
 #' @export
@@ -88,19 +97,38 @@ fedstat_data_load_with_filters <- function(indicator_id,
                                            httr_verbose = NULL,
                                            loading_steps_verbose = TRUE,
                                            return_type = c("data", "dictionary"),
-                                           try_to_parse_ObsValue = TRUE) {
+                                           try_to_parse_ObsValue = TRUE,
+                                           allow_large_requests = FALSE) {
     id <- tryCatch(fedstat_indicator_id(indicator_id), error = function(e) "<indicator code>")
-    warning(structure(
-        class = c("fedstat_deprecated", "deprecatedWarning", "warning", "condition"),
-        list(message = paste0(
-            "fedstat_data_load_with_filters() is deprecated. It sends your whole selection to Fedstat ",
-            "as one request: large selections are slow, often fail and overload Fedstat. ",
-            "Use fedstat_download() instead. It downloads in small parts and continues after interruptions:\n",
-            "  job <- fedstat_download(\"", id, "\", filters = <your filters>, cache_dir = \"my-download\")\n",
-            "  data <- fedstat_collect(job)"
-        ), call = NULL)
-    ))
     fedstat_positive(retry_max_times, "retry_max_times", integer = TRUE)
+    fedstat_flag(allow_large_requests, "allow_large_requests")
+    advice <- fedstat_download_advice(id)
+    # Small selections get one friendly notice per session; large ones warn on
+    # every call; oversized ones stop before anything is sent.
+    deprecation <- function(data_ids) {
+        cells <- fedstat_nominal_cells(data_ids)
+        if (fedstat_check_size(cells, allow_large_requests, advice)) {
+            warning(structure(
+                class = c("fedstat_deprecated", "deprecatedWarning", "warning", "condition"),
+                list(message = paste0(
+                    "fedstat_data_load_with_filters() is deprecated. This selection has ",
+                    fedstat_count(cells), " filter combinations, and this function sends them to ",
+                    "Fedstat as one request: it is slow, often fails and loads Fedstat heavily. ",
+                    advice
+                ), call = NULL)
+            ))
+        } else if (!isTRUE(fedstat_state$deprecation_shown)) {
+            fedstat_state$deprecation_shown <- TRUE
+            message(structure(
+                class = c("fedstat_deprecated", "deprecatedMessage", "message", "condition"),
+                list(message = paste0(
+                    "fedstat_data_load_with_filters() is deprecated but still works for small ",
+                    "selections like this one. ", advice, "\n",
+                    "This message is shown once per session.\n"
+                ), call = NULL)
+            ))
+        }
+    }
     data_ids <- NULL
     refreshed <- FALSE
     for (attempt in seq_len(retry_max_times)) {
@@ -113,11 +141,14 @@ fedstat_data_load_with_filters <- function(indicator_id,
                         retry_max_times = 1L, httr_verbose = httr_verbose
                     )
                     data_ids <- fedstat_data_ids_filter(ids, filters, disable_warnings)
+                    deprecation(data_ids)
                 }
                 if (loading_steps_verbose) message("Downloading indicator ", indicator_id, " ...")
+                # The size was checked and reported above.
                 bytes <- fedstat_post_data_ids_filtered(data_ids, ...,
                     timeout_seconds = timeout_seconds,
-                    retry_max_times = 1L, httr_verbose = httr_verbose
+                    retry_max_times = 1L, httr_verbose = httr_verbose,
+                    allow_large_requests = TRUE
                 )
                 fedstat_parse_sdmx_to_table(bytes, return_type, try_to_parse_ObsValue)
             },

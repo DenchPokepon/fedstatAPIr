@@ -10,12 +10,14 @@ fedstat_post_data_ids_filtered(
   data_format = c("sdmx", "excel"),
   timeout_seconds = 180,
   retry_max_times = 3,
-  httr_verbose = NULL
+  httr_verbose = NULL,
+  allow_large_requests = FALSE
 )
 }
 \arguments{
-\item{data_ids}{data.frame, a result of \code{fedstat_get_data_ids} to download all available data,
-or a result of \code{fedstat_data_ids_filter} to download subset of available data}
+\item{data_ids}{data.frame, a result of \code{fedstat_data_ids_filter} to download
+a subset of the available data (all data of an indicator usually exceed the
+size limit)}
 
 \item{...}{other arguments passed to httr::POST}
 
@@ -28,6 +30,10 @@ but used for fallback GET if CSRF token needs to be fetched}
 
 \item{httr_verbose}{\code{httr::verbose()} or NULL, outputs messages to the console
 about the processing of the request}
+
+\item{allow_large_requests}{logical. \code{TRUE} turns off the warning above
+50,000 filter combinations and allows up to 250,000. Larger requests are
+always refused.}
 }
 \value{
 raw bytes (sdmx or excel)
@@ -54,6 +60,12 @@ sdmx raw bytes can be passed to \code{fedstat_parse_sdmx_to_table} to create a
 data.frame or to \code{rawToChar} and \code{writeLines} to create an xml file
 
 excel raw bytes can be passed to \code{writeBin} to create an xls file
+
+Request size is limited to protect Fedstat. Size is the number of filter
+combinations: the product of the number of selected values of every filter.
+Above 50,000 combinations this function warns, above 100,000 it stops unless
+\code{allow_large_requests = TRUE}, and above 250,000 it always stops.
+\code{\link[=fedstat_download]{fedstat_download()}} splits larger selections into parts.
 }
 \examples{
 \dontrun{

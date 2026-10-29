@@ -12,42 +12,48 @@
 #'   [fedstat_collect()] returns the table.
 #' @param indicator_id Indicator code from its page address, for example `"31074"`
 #'   for `https://www.fedstat.ru/indicator/31074`.
-#' @param ... For advanced users: httr settings applied to every request, for
-#'   example `httr::user_agent("my-project")` or `httr::config(connecttimeout = 20)`.
-#'   Any other unnamed or unknown argument is an error.
 #' @param filters A named list: filter names and the values to download, both in
 #'   Russian, as shown on Fedstat. `"*"` selects every value of a filter. Every
 #'   filter with more than one value must be listed. Case and extra spaces are
 #'   ignored. The single string `"*"` instead of a list selects everything.
 #' @param cache_dir Folder for the saved parts, created if needed. Use one folder
-#'   per download and keep it until you have collected and saved the table.
+#'   per download and keep it until you have collected and saved the table. If
+#'   omitted, a folder such as `fedstat-31074-1a2b3c4d` is created in the current
+#'   folder: its name depends on the indicator and the filters, so running the
+#'   same call again continues in the same folder. The full path is shown.
+#' @param ... For advanced users: httr settings applied to every request, for
+#'   example `httr::user_agent("my-project")` or `httr::config(connecttimeout = 20)`.
+#'   Any other unnamed or unknown argument is an error. Arguments after `...`
+#'   must be named in full.
 #' @param max_nominal_cells_request Largest number of filter combinations in one
-#'   request. Default 100,000. Smaller requests are usually more reliable but the
-#'   download needs more of them. Values above 250,000 give a warning.
-#' @param token_policy `"reuse"` (default) keeps the download session's token until
-#'   Fedstat rejects it; `"refresh"` gets a new one before every request, which costs
-#'   an extra page request each time.
+#'   request. Default 50,000. Above 50,000 you get a warning, above 100,000
+#'   `allow_large_requests = TRUE` is required, and 250,000 is the maximum.
+#' @param allow_large_requests `TRUE` turns off the warning for
+#'   `max_nominal_cells_request` above 50,000 and allows up to 250,000.
 #' @param preview_first If `TRUE`, ask Fedstat to show each part's table first,
 #'   as its website does when you press "Apply", and then download it. Fedstat
 #'   sometimes only returns data after this step. Default `FALSE`: it adds a
 #'   request per attempt and can roughly double the download time.
+#' @param total_time_limit_seconds Time for this run in seconds, including
+#'   pauses; default one hour. Run the same call again to continue.
 #' @param timeout_seconds Longest wait for one request, in seconds.
 #' @param retry_max_times Attempts per part before it is split or the download
 #'   pauses, including the first.
 #' @param request_pause Seconds between requests: one number, or two numbers for a
 #'   random pause in that range.
-#' @param max_depth How many times a part may be split again.
-#' @param max_failures Failed data requests in a row before the download pauses to
-#'   let Fedstat recover.
 #' @param verbose `TRUE` (default) shows short progress messages, `FALSE` hides
 #'   them, `"detailed"` shows every event. Warnings and errors are always shown.
 #' @param log_file Diagnostic log, by default `download.log` inside `cache_dir`;
 #'   `NULL` turns it off. Attach it when reporting a problem.
+#' @param token_policy `"reuse"` (default) keeps the download session's token until
+#'   Fedstat rejects it; `"refresh"` gets a new one before every request, which costs
+#'   an extra page request each time.
+#' @param max_depth How many times a part may be split again.
+#' @param max_failures Failed data requests in a row before the download pauses to
+#'   let Fedstat recover.
 #' @param recovery_max_times How many recovery pauses are allowed since the last
 #'   saved part before the run stops. `0` stops after ordinary retries.
 #' @param recovery_pause First recovery pause in seconds; it doubles each time.
-#' @param total_time_limit_seconds Time for this run in seconds, including
-#'   pauses; default one hour. Run the same call again to continue.
 #' @param access_pause Seconds to wait when Fedstat seems to check or refuse
 #'   access; default five minutes, doubling if it happens again. No check is
 #'   bypassed.
@@ -67,8 +73,11 @@
 #' @section Request size: Size is counted in filter combinations, the product of
 #'   the number of selected values of every filter, not in rows: many
 #'   combinations can be empty. A part over the limit is split along its largest
-#'   filter into the fewest groups that fit. There is no universally safe size;
-#'   it depends on the indicator and on how busy Fedstat is.
+#'   filter into the fewest groups that fit. Fedstat checks every combination,
+#'   even empty ones, so large requests load it for all its users and often
+#'   fail. Every function that requests data uses the same limits: a warning
+#'   above 50,000 combinations, `allow_large_requests = TRUE` needed above
+#'   100,000, and no request above 250,000.
 #'
 #' @section Reliability: Requests are sequential and paced. A failed request is
 #'   retried after a pause. A part is halved only when its size is the likely
@@ -108,16 +117,25 @@
 #' \dontrun{
 #' job <- fedstat_download("31074", filters = "*", cache_dir = "cpi-download")
 #' data <- fedstat_collect(job)
+#'
+#' # Filter names as on the indicator page (English placeholders: CRAN needs ASCII)
+#' filters <- list("Year" = "2024", "Period" = "January", "Territory" = "*")
+#' # Without cache_dir, a folder is chosen for you and its path is shown
+#' job <- fedstat_download("31074", filters)
 #' }
-fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
-                             max_nominal_cells_request = 100000, token_policy = c("reuse", "refresh"),
-                             preview_first = FALSE,
+# The three main arguments come first so they work positionally; httr settings
+# in `...` follow, so unnamed settings never fill later arguments, and the rest
+# must be named in full.
+fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, ...,
+                             max_nominal_cells_request = 50000, allow_large_requests = FALSE,
+                             preview_first = FALSE, total_time_limit_seconds = 3600,
                              timeout_seconds = 180, retry_max_times = 2L,
-                             request_pause = c(30, 60),
-                             max_depth = 20L, max_failures = 6L, verbose = TRUE,
+                             request_pause = c(30, 60), verbose = TRUE,
                              log_file = file.path(cache_dir, "download.log"),
+                             token_policy = c("reuse", "refresh"),
+                             max_depth = 20L, max_failures = 6L,
                              recovery_max_times = 3L, recovery_pause = 60,
-                             total_time_limit_seconds = 3600, access_pause = 300) {
+                             access_pause = 300) {
     # `...` carries only httr settings; anything else is a misspelled argument.
     unknown <- !vapply(list(...), function(x) is.null(x) || inherits(x, "request"), logical(1L))
     if (any(unknown)) {
@@ -132,7 +150,6 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
     if (!is.logical(preview_first) || length(preview_first) != 1L || is.na(preview_first)) {
         stop("preview_first must be TRUE or FALSE.", call. = FALSE)
     }
-    path <- cache_dir
     started <- fedstat_elapsed()
     token_policy <- match.arg(token_policy)
     verbose <- fedstat_verbosity(verbose)
@@ -140,6 +157,14 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
     for (name in c("max_nominal_cells_request", "total_time_limit_seconds", "timeout_seconds", "retry_max_times", "max_depth", "max_failures")) {
         fedstat_positive(get(name), name, integer = name %in% c("max_nominal_cells_request", "retry_max_times", "max_depth", "max_failures"))
     }
+    fedstat_flag(allow_large_requests, "allow_large_requests")
+    large_parts <- fedstat_check_part_size(max_nominal_cells_request, allow_large_requests)
+    indicator_id <- fedstat_indicator_id(indicator_id)
+    filters <- fedstat_filters(filters)
+    default_dir <- is.null(cache_dir)
+    # Set before log_file's default is evaluated, which refers to cache_dir.
+    if (default_dir) cache_dir <- fedstat_default_cache_dir(indicator_id, filters)
+    path <- cache_dir
     time_left <- function() {
         seconds <- total_time_limit_seconds - (fedstat_elapsed() - started)
         if (seconds < 0.001) fedstat_time_expired(total_time_limit_seconds)
@@ -160,10 +185,11 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
     if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
         stop("cache_dir must be a folder for saved download parts.", call. = FALSE)
     }
-    indicator_id <- fedstat_indicator_id(indicator_id)
-    filters <- fedstat_filters(filters)
     dir.create(path, recursive = TRUE, showWarnings = FALSE)
     path <- normalizePath(path, mustWork = TRUE)
+    if (default_dir && verbose != "quiet") {
+        message("Saving the download in ", path, ". Running the same call again continues there; set cache_dir to choose the folder.")
+    }
     lock <- fedstat_lock(path, "fedstat_download()")
     on.exit(unlink(lock, recursive = TRUE), add = TRUE)
     manifest_path <- file.path(path, "manifest.rds")
@@ -228,18 +254,14 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
             ),
             package_version = as.character(utils::packageVersion("fedstatAPIr")),
             r_version = as.character(getRversion()), platform = R.version$platform,
-            max_nominal_cells_request = max_nominal_cells_request, token_policy = token_policy, timeout_seconds = timeout_seconds,
+            max_nominal_cells_request = max_nominal_cells_request, allow_large_requests = allow_large_requests,
+            token_policy = token_policy, timeout_seconds = timeout_seconds,
             preview_first = preview_first,
             request_pause = request_pause, retry_max_times = retry_max_times, max_depth = max_depth,
             max_failures = max_failures, log_file = log_file,
             recovery_max_times = recovery_max_times, recovery_pause = recovery_pause, access_pause = access_pause
             )
-            if (max_nominal_cells_request > 250000) {
-                warning(
-                    "Large requests may fail more often: max_nominal_cells_request exceeds 250,000. Try 100,000 for smaller, usually more reliable downloads; the best size depends on the indicator and how busy Fedstat is.",
-                    call. = FALSE, immediate. = TRUE
-                )
-            }
+            if (large_parts) warning(fedstat_part_size_warning, call. = FALSE, immediate. = TRUE)
             manifest <- if (file.exists(manifest_path)) readRDS(manifest_path) else NULL
             if (is.null(manifest) && length(list.files(c(path, file.path(path, "parts")), pattern = "^part-[0-9.]+[.]rds$"))) {
                 stop("Saved parts exist without a manifest; restore manifest.rds or use a new path.", call. = FALSE)
@@ -573,9 +595,10 @@ fedstat_download <- function(indicator_id, ..., filters = list(), cache_dir,
                                 "Preparing part ", part$id, "; attempt ", attempt, "/", retry_max_times,
                                 "; filter combinations: ", round(exp(log_cells))
                             ))
+                            # Part size was checked against the limits at the start.
                             bytes <- fedstat_post_data_ids_filtered(selected, ...,
                                 timeout_seconds = timeout_seconds,
-                                retry_max_times = retry_max_times
+                                retry_max_times = retry_max_times, allow_large_requests = TRUE
                             )
                             phase <- "parse"
                             parse_started <- proc.time()[["elapsed"]]

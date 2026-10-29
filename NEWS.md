@@ -1,13 +1,28 @@
 # fedstatAPIr 2.0.0
 
+## Breaking changes
+
+* Every function that requests data now limits the size of one request, counted
+  in filter combinations (the product of the number of selected values of every
+  filter). Fedstat checks every combination, even empty ones, so huge requests
+  rarely succeed and slow Fedstat down for all its users. Above 50,000
+  combinations you get a warning; above 100,000 the request is refused unless
+  `allow_large_requests = TRUE`; above 250,000 it is always refused.
+  `fedstat_download()` splits larger selections into parts.
+  `fedstat_data_load_with_filters()` and `fedstat_post_data_ids_filtered()` gain
+  `allow_large_requests` as their last argument.
+
 ## New: reliable downloads in parts
 
 * `fedstat_download()` downloads an indicator in small parts, one request at a
   time with pauses, and saves every finished part to disk. Fedstat builds every
   combination of the selected filter values, so large selections are split into
-  parts of at most `max_nominal_cells_request` combinations (100,000 by default).
+  parts of at most `max_nominal_cells_request` combinations (50,000 by default).
   If a run stops (time allowance, Fedstat outage, closed R), running the same
   call again continues with the remaining parts.
+* `cache_dir` is optional: without it, a folder named after the indicator and
+  the filters is created in the current folder, so the same call resumes there.
+  `fedstat_download("31074", filters)` works positionally.
 * Failed requests are retried; a part is split further only when its size is
   the likely cause. Outages and access refusals lead to recovery pauses instead.
 * If Fedstat renames or withdraws selected values during a download, the
@@ -24,14 +39,16 @@
 
 ## Deprecated
 
-* `fedstat_data_load_with_filters()` still works but warns on every call (class
-  `fedstat_deprecated`). It sends the whole selection as one request, which is
-  slow for large selections and heavy for Fedstat. Use `fedstat_download()` and
-  `fedstat_collect()` instead; see `MIGRATION.md`.
+* `fedstat_data_load_with_filters()` still works for small selections. It sends
+  the whole selection as one request, which is slow for large selections and
+  heavy for Fedstat. Up to 50,000 combinations it shows a deprecation message
+  once per session; above that it warns on every call (class
+  `fedstat_deprecated`). Use `fedstat_download()` and `fedstat_collect()`
+  instead; see `MIGRATION.md`.
 
 ## Changes in existing functions
 
-All 1.x functions keep their names, arguments and defaults.
+All 1.x functions keep their names, existing arguments and defaults.
 
 * `try_to_parse_ObsValue = TRUE` now reliably raises an error for values that
   are not numbers; in 1.x this check could silently pass.

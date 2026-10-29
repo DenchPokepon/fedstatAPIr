@@ -76,6 +76,8 @@ head(data[c("s_grtov", "s_POK", "ObsValue")], 5)
   classification codes.
 * The folder `cpi-download` is created in R's current folder (the project folder
   in an RStudio project). A full path such as `"G:/research/cpi-download"` works too.
+  Without `cache_dir`, the package creates a folder such as `fedstat-31074-1a2b3c4d`
+  and tells you where it is. The same filters always get the same folder.
 
 About filters:
 
@@ -97,8 +99,13 @@ saves every finished part to disk. Fedstat gets a light, steady load; you get a
 download that finishes and continues where it stopped.
 
 The example above is about 2,200 combinations: a single request. Parts matter for
-bigger selections: by default a part has up to 100,000 combinations, with a
+bigger selections: by default a part has up to 50,000 combinations, with a
 30–60 second pause between requests.
+
+No function in the package sends a request above 100,000 combinations unless you
+explicitly allow it, and none sends one above 250,000 at all. Such requests almost
+never succeed and slow the site down for everyone. `fedstat_download()` gets the
+same selection in parts.
 
 ## If the download stops 🔁
 
@@ -132,6 +139,7 @@ Find the start of the message in the table.
 | `Fedstat changed the filters`, `Fedstat returned data for values that were not requested` | Fedstat changed the indicator's filters | Start again with a new `cache_dir` |
 | `Fedstat renamed some values`, `Fedstat no longer offers some of the values you selected` | Fedstat renamed or removed some values | Nothing: the download continues. `print(job)` lists removed values |
 | `Some ObsValue values are not numbers` | The data contain notes instead of numbers | `fedstat_collect(job, try_to_parse_ObsValue = FALSE)` returns the values as text |
+| `This request has ... filter combinations` | The request is too large for one call to Fedstat | Download it with `fedstat_download()`, which splits it into parts |
 | `Unknown argument` | A setting name is misspelled | Check the spelling in `?fedstat_download` |
 
 **Parts keep failing?** Add `preview_first = TRUE` to the call. Before each part,
@@ -144,8 +152,9 @@ of a download, in the same folder.
 
 * `filters = "*"` instead of a list selects everything: all years, territories
   and other values. This can take many hours.
-* `max_nominal_cells_request` sets the part size in combinations. 100,000 is
-  reliable; you can try up to 250,000, above that the package warns you.
+* `max_nominal_cells_request` sets the part size in combinations; the default is
+  50,000. Bigger is usually worse: above 50,000 the package warns you, above
+  100,000 it needs `allow_large_requests = TRUE`, and 250,000 is the maximum.
 * `timeout_seconds = 300` waits up to 5 minutes for a response instead of 3.
 * `fedstat_collect()` loads the whole table into memory.
 
@@ -180,7 +189,8 @@ ind[grepl("потребительских цен", ind$title), c("id", "title")]
 `fedstat_post_data_ids_filtered()` and `fedstat_parse_sdmx_to_table()` are the
 separate steps of a single request, without parts or pauses.
 `fedstat_data_load_with_filters()` from version 1.x still works but is
-deprecated. See [MIGRATION.md](MIGRATION.md) for what changed since 1.x.
+deprecated. The same request size limits apply to them. See
+[MIGRATION.md](MIGRATION.md) for what changed since 1.x.
 
 ## Help 💬
 

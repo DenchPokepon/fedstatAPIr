@@ -22,8 +22,15 @@
 #'
 #'   excel raw bytes can be passed to `writeBin` to create an xls file
 #'
-#' @param data_ids data.frame, a result of `fedstat_get_data_ids` to download all available data,
-#'   or a result of `fedstat_data_ids_filter` to download subset of available data
+#'   Request size is limited to protect Fedstat. Size is the number of filter
+#'   combinations: the product of the number of selected values of every filter.
+#'   Above 50,000 combinations this function warns, above 100,000 it stops unless
+#'   `allow_large_requests = TRUE`, and above 250,000 it always stops.
+#'   [fedstat_download()] splits larger selections into parts.
+#'
+#' @param data_ids data.frame, a result of `fedstat_data_ids_filter` to download
+#'   a subset of the available data (all data of an indicator usually exceed the
+#'   size limit)
 #' @param ... other arguments passed to httr::POST
 #' @param data_format string, one of sdmx, excel
 #' @param timeout_seconds numeric, maximum time before POST request times out
@@ -31,6 +38,9 @@
 #'   but used for fallback GET if CSRF token needs to be fetched
 #' @param httr_verbose `httr::verbose()` or NULL, outputs messages to the console
 #' about the processing of the request
+#' @param allow_large_requests logical. `TRUE` turns off the warning above
+#'   50,000 filter combinations and allows up to 250,000. Larger requests are
+#'   always refused.
 #'
 #' @return raw bytes (sdmx or excel)
 #' @export
@@ -61,9 +71,23 @@ fedstat_post_data_ids_filtered <- function(data_ids,
                                            data_format = c("sdmx", "excel"),
                                            timeout_seconds = 180,
                                            retry_max_times = 3,
-                                           httr_verbose = NULL) {
+                                           httr_verbose = NULL,
+                                           allow_large_requests = FALSE) {
     data_format <- match.arg(data_format)
+    fedstat_flag(allow_large_requests, "allow_large_requests")
     session <- fedstat_session(data_ids)
+    cells <- fedstat_nominal_cells(data_ids)
+    if (fedstat_check_size(cells, allow_large_requests, fedstat_download_advice(session$indicator_id)) &&
+        !allow_large_requests) {
+        warning(structure(
+            class = c("fedstat_large_request", "warning", "condition"),
+            list(message = paste0(
+                "This request has ", fedstat_count(cells), " filter combinations. Requests above ",
+                "50,000 are heavy for Fedstat and fail more often. fedstat_download() splits a ",
+                "selection into small parts. Set allow_large_requests = TRUE to turn off this warning."
+            ), call = NULL)
+        ))
+    }
     before <- session$before
     if (is.null(before)) before <- function() NULL
     if (is.null(session$token) || is.null(session$token_name)) {

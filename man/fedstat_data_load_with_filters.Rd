@@ -14,7 +14,8 @@ fedstat_data_load_with_filters(
   httr_verbose = NULL,
   loading_steps_verbose = TRUE,
   return_type = c("data", "dictionary"),
-  try_to_parse_ObsValue = TRUE
+  try_to_parse_ObsValue = TRUE,
+  allow_large_requests = FALSE
 )
 }
 \arguments{
@@ -58,6 +59,10 @@ about the processing of the request}
 dictionary for sdmx lookup table (full data codes dictionary)}
 
 \item{try_to_parse_ObsValue}{logical, try to parse ObsValue column from character to R numeric type}
+
+\item{allow_large_requests}{logical. \code{TRUE} allows selections of up to
+250,000 filter combinations instead of 100,000. Larger selections are
+always refused; use \code{\link[=fedstat_download]{fedstat_download()}} for them.}
 }
 \value{
 data.frame with filtered indicator data from fedstat.ru
@@ -65,12 +70,18 @@ data.frame with filtered indicator data from fedstat.ru
 \description{
 \strong{Deprecated: use \code{\link[=fedstat_download]{fedstat_download()}} and \code{\link[=fedstat_collect]{fedstat_collect()}}.}
 This function sends the whole selection to Fedstat as one request, with no
-size limit, pauses or saved progress. Large selections are slow, often fail
-and put heavy load on Fedstat. It is kept so that existing scripts keep
-working, and warns on every call. Replace
-\code{data <- fedstat_data_load_with_filters("31074", filters = filters)} with
-\code{job <- fedstat_download("31074", filters = filters, cache_dir = "my-download")}
-and \code{data <- fedstat_collect(job)}.
+pauses or saved progress. Large selections are slow, often fail and put
+heavy load on Fedstat. It is kept so that existing scripts keep working.
+Replace \code{data <- fedstat_data_load_with_filters("31074", filters = filters)}
+with \code{job <- fedstat_download("31074", filters = filters)} and
+\code{data <- fedstat_collect(job)}.
+
+Size is the number of filter combinations: the product of the number of
+selected values of every filter. Up to 50,000 combinations, a deprecation
+message is shown once per session. Above 50,000, every call warns. Above
+100,000, the function stops unless \code{allow_large_requests = TRUE}, and above
+250,000 it always stops: such requests load Fedstat for all its users and
+rarely succeed.
 
 This function is a wrapper for the other functions of the package
 to provide a simple one function API for fedstat.ru

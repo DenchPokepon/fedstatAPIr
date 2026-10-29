@@ -31,7 +31,7 @@ local({
     job <- tryCatch(fedstat_download(
         "31074",
         filters = filters, cache_dir = path,
-        max_nominal_cells_request = 100000, token_policy = "reuse",
+        max_nominal_cells_request = 100000, allow_large_requests = TRUE, token_policy = "reuse",
         preview_first = TRUE, # Apply each part's filters to the website preview before export.
         total_time_limit_seconds = 3600, retry_max_times = 2L, max_failures = 6L,
         request_pause = c(30, 60), timeout_seconds = 300,

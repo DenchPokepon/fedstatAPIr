@@ -159,21 +159,22 @@ mock(
         "fedstat_backoff",
         function(...) 0,
         {
-            # The deprecated wrapper warns on every call with a copy-paste replacement,
-            # and otherwise behaves as before.
+            # A small selection gets a friendly deprecation message with a
+            # copy-paste replacement; the wrapper otherwise behaves as before.
+            assign("deprecation_shown", NULL, envir = internal("fedstat_state"))
             deprecation <- NULL
             data <- withCallingHandlers(
                 fedstat_data_load_with_filters("31074",
                     filters = list(Year = "*", Area = "*"),
                     loading_steps_verbose = FALSE
                 ),
-                fedstat_deprecated = function(w) {
-                    deprecation <<- w
-                    invokeRestart("muffleWarning")
+                fedstat_deprecated = function(m) {
+                    deprecation <<- m
+                    invokeRestart("muffleMessage")
                 }
             )
             stopifnot(
-                nrow(data) == 2L, inherits(deprecation, "deprecatedWarning"),
+                nrow(data) == 2L, inherits(deprecation, "deprecatedMessage"),
                 grepl("fedstat_download(\"31074\"", conditionMessage(deprecation), fixed = TRUE)
             )
         }
@@ -900,7 +901,7 @@ for (mode in list(TRUE, FALSE, "detailed")) {
         with_batch(withCallingHandlers(
             fedstat_download("31074",
                 filters = "*", cache_dir = path,
-                max_nominal_cells_request = 250001, request_pause = 0, verbose = mode
+                max_nominal_cells_request = 60000, request_pause = 0, verbose = mode
             ),
             message = function(m) {
                 output <<- c(output, conditionMessage(m))
@@ -912,7 +913,7 @@ for (mode in list(TRUE, FALSE, "detailed")) {
             }
         ))
         stopifnot(
-            length(notices) == 1L, grepl("100,000", notices), identical(options(), original_options),
+            length(notices) == 1L, grepl("allow_large_requests = TRUE", notices), identical(options(), original_options),
             !any(grepl("\r|\033", output))
         )
         if (identical(mode, FALSE)) stopifnot(!length(output))
@@ -982,18 +983,35 @@ for (name in c("max_cells", "path", "time_limit_seconds", "prepare_grid", "prepa
     expect_error(do.call(fedstat_download, args), pattern = paste0("Unknown argument: ", name))
 }
 
-# The advisory is strictly above 250,000 and has normal R warning semantics.
-local({
+# The size warning is strictly above 50,000 and allow_large_requests silences it.
+for (setting in list(list(50000, FALSE), list(100000, TRUE), list(250000, TRUE))) {
+    local({
+        path <- tempfile()
+        on.exit(unlink(path, recursive = TRUE))
+        with_batch(withCallingHandlers(
+            fedstat_download("31074",
+                filters = "*", cache_dir = path, max_nominal_cells_request = setting[[1L]],
+                allow_large_requests = setting[[2L]], request_pause = 0, verbose = FALSE
+            ),
+            warning = function(w) stop("Unexpected size warning")
+        ))
+    })
+}
+
+# Part sizes above 100,000 need allow_large_requests; above 250,000 nothing is
+# allowed. Both stop before any folder or request is created.
+for (setting in list(list(100001, FALSE, "allow_large_requests = TRUE"), list(250001, TRUE, "at most 250,000"))) {
     path <- tempfile()
-    on.exit(unlink(path, recursive = TRUE))
-    with_batch(withCallingHandlers(
+    mock("fedstat_read_ids", function(...) stop("No request expected"), expect_error(
         fedstat_download("31074",
-            filters = "*", cache_dir = path,
-            max_nominal_cells_request = 250000, request_pause = 0, verbose = FALSE
+            filters = "*", cache_dir = path, max_nominal_cells_request = setting[[1L]],
+            allow_large_requests = setting[[2L]], verbose = FALSE
         ),
-        warning = function(w) stop("Unexpected size warning")
+        pattern = setting[[3L]]
     ))
-})
+    stopifnot(!file.exists(path))
+}
+expect_error(fedstat_download("31074", filters = "*", cache_dir = tempfile(), allow_large_requests = NA), pattern = "TRUE or FALSE")
 
 # Access cooldowns stop at the deadline, and interruption during a cooldown is safe.
 for (cancel in c(FALSE, TRUE)) {
@@ -1349,7 +1367,6 @@ local({
         internal("fedstat_refresh")(internal("fedstat_session")(x), timeout_seconds = 1)
     })
 })
-stopifnot(names(formals(fedstat_download))[match("token_policy", names(formals(fedstat_download))) + 1L] == "preview_first")
 cat("Empty selection, cache resume and opaque identifier tests passed.\n")
 
 # Fallback checks obey cancellation, access refusal and time allowance. None can
@@ -1903,3 +1920,139 @@ local({
     stopifnot(nrow(fedstat_collect(job)) == 4L)
 })
 cat("Folder lock message tests passed.\n")
+
+# Every function that requests data shares the size limits. Synthetic selections
+# with the given number of values per filter stand in for real filter IDs.
+selection_of <- function(...) {
+    counts <- c(1, ...)
+    data.frame(filter_field_id = rep(as.character(seq_along(counts) - 1L), counts), stringsAsFactors = FALSE)
+}
+legacy_call <- function(selection, ...) {
+    posts <- 0L
+    result <- mock("fedstat_get_data_ids", function(...) ids, mock(
+        "fedstat_data_ids_filter", function(...) selection,
+        mock("fedstat_post_data_ids_filtered", function(...) {
+            posts <<- posts + 1L
+            xml
+        }, tryCatch(fedstat_data_load_with_filters("31074", filters = list(), loading_steps_verbose = FALSE, ...),
+            error = identity
+        ))
+    ))
+    list(result = result, posts = posts)
+}
+local({
+    assign("deprecation_shown", NULL, envir = internal("fedstat_state"))
+    notices <- list()
+    collect <- function(code) {
+        withCallingHandlers(code,
+            message = function(m) {
+                notices[[length(notices) + 1L]] <<- m
+                invokeRestart("muffleMessage")
+            },
+            warning = function(w) {
+                notices[[length(notices) + 1L]] <<- w
+                invokeRestart("muffleWarning")
+            }
+        )
+    }
+    # Up to 50,000 combinations: one friendly message per session, nothing else.
+    for (i in 1:2) stopifnot(is.data.frame(collect(legacy_call(selection_of(200, 250)))$result))
+    stopifnot(
+        length(notices) == 1L, inherits(notices[[1L]], "deprecatedMessage"), inherits(notices[[1L]], "fedstat_deprecated"),
+        grepl("once per session", conditionMessage(notices[[1L]]))
+    )
+    # Above 50,000: a warning on every call.
+    notices <- list()
+    for (i in 1:2) stopifnot(is.data.frame(collect(legacy_call(selection_of(300, 200)))$result))
+    stopifnot(
+        length(notices) == 2L, all(vapply(notices, inherits, logical(1L), "deprecatedWarning")),
+        grepl("60,000 filter combinations", conditionMessage(notices[[1L]]), fixed = TRUE)
+    )
+    # Above 100,000: stopped before the data request unless explicitly allowed.
+    call <- collect(legacy_call(selection_of(400, 300)))
+    stopifnot(
+        inherits(call$result, "fedstat_too_large"), call$posts == 0L,
+        grepl("allow_large_requests = TRUE", conditionMessage(call$result), fixed = TRUE),
+        grepl("everyone else", conditionMessage(call$result), fixed = TRUE),
+        grepl("fedstat_download(\"31074\"", conditionMessage(call$result), fixed = TRUE)
+    )
+    stopifnot(is.data.frame(collect(legacy_call(selection_of(400, 300), allow_large_requests = TRUE))$result))
+    # Above 250,000: always stopped.
+    call <- collect(legacy_call(selection_of(520, 500), allow_large_requests = TRUE))
+    stopifnot(inherits(call$result, "fedstat_too_large"), call$posts == 0L, grepl("limited to 250,000", conditionMessage(call$result)))
+})
+
+# The low-level export applies the same limits before sending anything.
+local({
+    session <- new.env()
+    session$indicator_id <- "31074"
+    post <- function(selection, ...) {
+        warned <- NULL
+        result <- mock("fedstat_session", function(...) session, mock(
+            "fedstat_refresh", function(...) stop("sent"),
+            withCallingHandlers(tryCatch(fedstat_post_data_ids_filtered(selection, ...), error = identity),
+                fedstat_large_request = function(w) {
+                    warned <<- w
+                    invokeRestart("muffleWarning")
+                }
+            )
+        ))
+        list(result = result, warned = warned)
+    }
+    small <- post(selection_of(200, 250))
+    stopifnot(conditionMessage(small$result) == "sent", is.null(small$warned))
+    medium <- post(selection_of(300, 200))
+    stopifnot(conditionMessage(medium$result) == "sent", grepl("allow_large_requests = TRUE", conditionMessage(medium$warned)))
+    stopifnot(is.null(post(selection_of(300, 200), allow_large_requests = TRUE)$warned))
+    large <- post(selection_of(400, 300))
+    stopifnot(inherits(large$result, "fedstat_too_large"))
+    stopifnot(conditionMessage(post(selection_of(400, 300), allow_large_requests = TRUE)$result) == "sent")
+    stopifnot(inherits(post(selection_of(520, 500), allow_large_requests = TRUE)$result, "fedstat_too_large"))
+})
+cat("Request size limit tests passed.\n")
+
+# The main three arguments work positionally; unnamed httr settings go to `...`.
+stopifnot(
+    identical(names(formals(fedstat_download))[1:5], c("indicator_id", "filters", "cache_dir", "...", "max_nominal_cells_request")),
+    "allow_large_requests" %in% names(formals(fedstat_download)),
+    formals(fedstat_download)$max_nominal_cells_request == 50000
+)
+
+# Without cache_dir, the folder is named after the indicator and the filters, so
+# the same call resumes in the same folder; equivalent spellings share it.
+local({
+    home <- tempfile()
+    dir.create(home)
+    old <- setwd(home)
+    on.exit({
+        setwd(old)
+        unlink(home, recursive = TRUE)
+    })
+    name <- internal("fedstat_default_cache_dir")
+    normalize <- internal("fedstat_filters")
+    stopifnot(
+        grepl("^fedstat-31074-[0-9a-f]{8}$", name("31074", "*")),
+        identical(
+            name("31074", normalize(list(Area = "North", Year = c("2024", "2023")))),
+            name("31074", normalize(list(year = c("2023", " 2024"), AREA = "north")))
+        ),
+        !identical(name("31074", normalize(list(Year = "2024"))), name("31074", normalize(list(Year = "2023")))),
+        !identical(name("31074", "*"), name("31075", "*"))
+    )
+    output <- character()
+    keep <- function(m) {
+        output <<- c(output, conditionMessage(m))
+        invokeRestart("muffleMessage")
+    }
+    job <- with_batch(withCallingHandlers(fedstat_download("31074", "*", request_pause = 0), message = keep))
+    folder <- file.path(normalizePath(home), name("31074", "*"))
+    stopifnot(
+        isTRUE(job$complete), normalizePath(job$path) == normalizePath(folder),
+        file.exists(file.path(folder, "download.log")),
+        any(grepl("Saving the download in", output, fixed = TRUE))
+    )
+    # Running the same call again finds the finished download in the same folder.
+    again <- with_batch(withCallingHandlers(fedstat_download("31074", "*", request_pause = 0, verbose = FALSE), message = keep))
+    stopifnot(normalizePath(again$path) == normalizePath(folder), nrow(fedstat_collect(again)) == 4L)
+})
+cat("Default folder and argument order tests passed.\n")
