@@ -37,6 +37,20 @@
 * Each download keeps a diagnostic `download.log` without tokens, cookies or
   response bodies.
 
+## New: filters and code dictionary
+
+* `fedstat_show_filters()` lists the filters of an indicator with their number
+  of values and examples, and prints a `filters <- list(...)` ready to copy: the
+  selection the website shows when the page opens. It also returns that list.
+* `fedstat_dictionary()` returns the full SDMX code lists of an indicator (every
+  code and name of every classification) without choosing filters. It downloads
+  a small sample, starting with the website's opening selection and trying a
+  few small random ones if that has no data. It replaces
+  `fedstat_data_load_with_filters(..., return_type = "dictionary")`. When no
+  sample has data, the error has class `fedstat_no_data`.
+* `fedstat_get_data_ids()` keeps the website's opening selection in the
+  `fedstat_default_selection` attribute; its columns are unchanged.
+
 ## Deprecated
 
 * `fedstat_data_load_with_filters()` still works for small selections. It sends
@@ -70,7 +84,8 @@ All 1.x functions keep their names, existing arguments and defaults.
 ## Documentation
 
 * New Russian and English READMEs for researchers: a quick example with real
-  data, why downloads go in parts, and what to do about each message.
+  data, how to find filters and codes, why downloads go in parts, what to do
+  about each message, and how to set a User-Agent if Fedstat refuses the package.
 * `MIGRATION.md` explains upgrading from 1.x.
 
 # fedstatAPIr 1.1.0

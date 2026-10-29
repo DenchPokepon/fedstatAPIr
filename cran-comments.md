@@ -2,8 +2,9 @@
 
 fedstatAPIr 2.0.0. A major release: new functions `fedstat_download()`,
 `fedstat_collect()` and `fedstat_cleanup()` download data in small, paced,
-resumable parts, and every function that requests data from Fedstat now limits
-the size of one request to protect the service. `fedstat_data_load_with_filters()`
+resumable parts; `fedstat_show_filters()` and `fedstat_dictionary()` describe
+an indicator's filters and codes. Every function that requests data from
+Fedstat now limits the size of one request to protect the service. `fedstat_data_load_with_filters()`
 is deprecated but kept. See NEWS.md.
 
 ## Test environments

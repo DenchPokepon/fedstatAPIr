@@ -2056,3 +2056,73 @@ local({
     stopifnot(normalizePath(again$path) == normalizePath(folder), nrow(fedstat_collect(again)) == 4L)
 })
 cat("Default folder and argument order tests passed.\n")
+
+# The page marks the values it shows first; data_ids keep their 1.x columns.
+marked <- charToRaw(sub("{title: '2025'}", "{title: '2025', checked: true}", rawToChar(html), fixed = TRUE))
+page_ids <- mock("fedstat_request", function(...) response(marked), fedstat_get_data_ids("31074"))
+stopifnot(
+    identical(names(page_ids), names(ids)),
+    identical(attr(page_ids, "fedstat_default_selection"), "1_2025"),
+    identical(attr(ids, "fedstat_default_selection"), character())
+)
+opening <- internal("fedstat_default_selection")(page_ids)
+stopifnot(identical(opening$filter_value_title, c("Example indicator", "2025", "First")))
+cells <- internal("fedstat_nominal_cells")
+stopifnot(
+    cells(internal("fedstat_shrink")(ids, 2)) == 2,
+    cells(internal("fedstat_random_selection")(ids, 1)) == 1,
+    cells(internal("fedstat_random_selection")(ids, 4)) == 4
+)
+
+# Filters overview: the printed list is valid R and equals the returned one.
+printed <- capture.output(shown <- fedstat_show_filters(page_ids))
+stopifnot(
+    identical(shown, list(Year = "2025", Area = "First")),
+    any(grepl("\"Year\": 2 values", printed, fixed = TRUE))
+)
+template <- printed[which(printed == "filters <- list("):length(printed)]
+stopifnot(identical(eval(parse(text = template)), shown))
+everything <- page_ids
+attr(everything, "fedstat_default_selection") <- c("1_2024", "1_2025", "2_1", "2_2")
+invisible(capture.output(all_shown <- fedstat_show_filters(everything)))
+stopifnot(identical(all_shown, list(Year = "*", Area = "*")))
+expect_error(fedstat_show_filters(data.frame(x = 1)), pattern = "fedstat_get_data_ids")
+
+# Dictionary: the opening selection first, another sample after a redirect, and
+# only the code lists of the export are returned.
+dictionary_run <- function(answers, ...) {
+    posts <- list()
+    result <- mock("fedstat_read_ids", function(...) page_ids, mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
+        posts[[length(posts) + 1L]] <<- data_ids
+        answer <- answers[[min(length(posts), length(answers))]]
+        if (inherits(answer, "condition")) stop(answer)
+        answer
+    }, mock("fedstat_backoff", function(...) 0, tryCatch(fedstat_dictionary("31074", ..., request_pause = 0, verbose = FALSE), error = identity))))
+    list(result = result, posts = posts)
+}
+error_of <- function(kind) {
+    tryCatch(internal("fedstat_error")(kind, kind, "export", 302L), error = identity)
+}
+expected <- as.data.frame(fedstat_parse_sdmx_to_table(xml, "dictionary"))
+run <- dictionary_run(list(error_of("redirect"), xml))
+stopifnot(
+    identical(run$result, expected), length(run$posts) == 2L,
+    identical(run$posts[[1L]]$filter_value_title, opening$filter_value_title),
+    is.null(attr(run$posts[[2L]], "fedstat_session")$token)
+)
+run <- dictionary_run(list(error_of("redirect")), attempts = 3L)
+stopifnot(inherits(run$result, "fedstat_no_data"), length(run$posts) == 3L, grepl("filters = <your filters>", conditionMessage(run$result)))
+run <- dictionary_run(list(error_of("transient"), xml), filters = list(Year = "2024", Area = "*"))
+stopifnot(
+    identical(run$result, expected), length(run$posts) == 2L,
+    identical(run$posts[[1L]]$filter_value_title, run$posts[[2L]]$filter_value_title),
+    identical(sort(run$posts[[1L]]$filter_value_title), sort(c("Example indicator", "2024", "First", "Second")))
+)
+run <- dictionary_run(list(error_of("redirect")), filters = list(Year = "2024", Area = "*"))
+stopifnot(inherits(run$result, "fedstat_no_data"), length(run$posts) == 1L)
+run <- dictionary_run(list(error_of("blocked"), xml))
+stopifnot(inherits(run$result, "fedstat_blocked"), length(run$posts) == 1L)
+expect_error(fedstat_dictionary("31074", filters = "*"), pattern = "small selection")
+expect_error(fedstat_dictionary("31074", "Year"), pattern = "filters must be")
+expect_error(fedstat_dictionary("31074", NULL, 5), pattern = "Unknown argument")
+cat("Dictionary and filter overview tests passed.\n")

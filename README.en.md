@@ -87,6 +87,51 @@ About filters:
   miss one, the error names it;
 * case and extra spaces don't matter.
 
+## Which filters does an indicator have? 🔎
+
+You can copy filter names and values from the indicator page on fedstat.ru, in
+the table settings. Or ask the package:
+
+```r
+filters <- fedstat_show_filters("31074")
+```
+
+It lists every filter with its number of values and some examples, and prints a
+ready `filters` list: the selection the website shows when the page opens.
+
+```r
+#> Indicator 31074: Индексы потребительских цен на товары и услуги
+#>
+#> Filters and their values (use them in Russian, as written here):
+#>   "Год": 25 values: "2002", "2003", "2004", ..., "2026"
+#>   "Период": 16 values: "январь", "февраль", "март", ..., "IV квартал"
+#>   "Классификатор объектов административно-территориального деления (ОКАТО)": 119 values: "Российс...
+#>   "Виды показателя": 9 values: "К декабрю предыдущего года", "К предыдущему кварталу", "К предыду...
+#>   "Виды товаров и услуг": 1,105 values: "Все товары и услуги", "Все товары", "Базовый индекс потр...
+#>   "Единица измерения": one value, selected automatically: "процент"
+#>
+#> # The selection the website shows first (768 filter combinations). "*" selects every value.
+#> filters <- list(
+#>     "Год" = "2024",
+#>     "Период" = "*",
+#>     "Классификатор объектов административно-территориального деления (ОКАТО)" = c(
+#>         "Центральный федеральный округ",
+#>         "Белгородская область",
+#>         "Брянская область"
+#>     ),
+#> ...
+```
+
+Copy the list into your code and edit it. The function also returns it, so
+`fedstat_download("31074", filters)` downloads that selection right away.
+
+All values of one filter:
+
+```r
+ids <- fedstat_get_data_ids("31074")
+ids$filter_value_title[ids$filter_field_title == "Виды товаров и услуг"] # goods and services
+```
+
 ## Why download in parts? 🧩
 
 Fedstat builds a table from every combination of the values you choose.
@@ -140,6 +185,7 @@ Find the start of the message in the table.
 | `Fedstat renamed some values`, `Fedstat no longer offers some of the values you selected` | Fedstat renamed or removed some values | Nothing: the download continues. `print(job)` lists removed values |
 | `Some ObsValue values are not numbers` | The data contain notes instead of numbers | `fedstat_collect(job, try_to_parse_ObsValue = FALSE)` returns the values as text |
 | `This request has ... filter combinations` | The request is too large for one call to Fedstat | Download it with `fedstat_download()`, which splits it into parts |
+| `Fedstat returned no data` | The selection has no data (from `fedstat_dictionary()`) | Pass filters that show data on the website |
 | `Unknown argument` | A setting name is misspelled | Check the spelling in `?fedstat_download` |
 
 **Parts keep failing?** Add `preview_first = TRUE` to the call. Before each part,
@@ -152,9 +198,14 @@ of a download, in the same folder.
 
 * `filters = "*"` instead of a list selects everything: all years, territories
   and other values. This can take many hours.
-* `max_nominal_cells_request` sets the part size in combinations; the default is
-  50,000. Bigger is usually worse: above 50,000 the package warns you, above
-  100,000 it needs `allow_large_requests = TRUE`, and 250,000 is the maximum.
+* `max_nominal_cells_request` sets the part size in combinations. The default,
+  50,000, is reliable for any indicator. If an indicator has many empty
+  combinations (for example, not every product is sold in every region every
+  month), parts are mostly empty and Fedstat answers them quickly. Then larger
+  parts make the download much faster and are still reliable: try
+  `max_nominal_cells_request = 100000`. Above 50,000 the package warns you, above
+  100,000 it also needs `allow_large_requests = TRUE` (which also turns off the
+  warning), and 250,000 is the maximum.
 * `timeout_seconds = 300` waits up to 5 minutes for a response instead of 3.
 * `fedstat_collect()` loads the whole table into memory.
 
@@ -183,6 +234,37 @@ ind[grepl("потребительских цен", ind$title), c("id", "title")]
 
 `fedstat_indicator_info()` downloads the current list.
 
+## Code dictionary 📖
+
+In the data, every classification has two columns: names (`s_grtov`) and codes
+(`s_grtov_code`). `fedstat_dictionary()` downloads the full dictionary: every
+code and name of every classification, including values that are not in your
+download.
+
+```r
+dictionary <- fedstat_dictionary("31074")
+dictionary[dictionary$field_id == "s_grtov", c("value_id", "value_title")]
+#>    value_id                        value_title
+#> 10        1                Все товары и услуги
+#> 11        2                         Все товары
+#> 12        3 Базовый индекс потребительских цен
+#> ...
+```
+
+This dictionary has 1,105 goods and services, while the example above has 750:
+Primorsky Krai did not have data for all of them in January 2024. The dictionary
+comes from the SDMX export, not from the indicator page, so its codes are the
+ones in the `_code` columns.
+
+Fedstat sends the dictionary only together with data, so the function downloads
+a small piece of data. It starts with the selection the website shows when the
+page opens and, if that has no data, tries a few small random selections. If
+that fails too (`Fedstat returned no data`), pass filters that show data on the
+website: `fedstat_dictionary("31074", filters = filters)`.
+
+Year, period and unit of measurement are not in the dictionary: they have no
+codes.
+
 ## For advanced users
 
 `fedstat_get_data_ids()`, `fedstat_data_ids_filter()`,
@@ -192,9 +274,28 @@ separate steps of a single request, without parts or pauses.
 deprecated. The same request size limits apply to them. See
 [MIGRATION.md](MIGRATION.md) for what changed since 1.x.
 
+## If Fedstat refuses the package 🚪
+
+If the package is refused (`Fedstat refused access`) while the website opens in
+your browser, Fedstat may be filtering programs by their User-Agent header. The
+package introduces itself as `fedstatAPIr/<version>`. Set your browser's
+User-Agent once per R session, before downloading:
+
+```r
+httr::set_config(httr::user_agent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+))
+```
+
+A page such as "what is my user agent" shows your browser's value. For a single
+call, add `httr::user_agent("...")` to `fedstat_download()` instead. Other network
+settings are passed the same way, for example a proxy:
+`httr::use_proxy("http://proxy.example:8080")`.
+
 ## Help 💬
 
-Help pages: `?fedstat_download`, `?fedstat_collect`, `?fedstat_cleanup`.
+Help pages: `?fedstat_download`, `?fedstat_collect`, `?fedstat_show_filters`,
+`?fedstat_dictionary`, `?fedstat_cleanup`.
 
 If something doesn't work, open a
 [GitHub issue](https://github.com/DenchPokepon/fedstatAPIr/issues) and attach

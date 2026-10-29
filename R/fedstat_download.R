@@ -136,17 +136,7 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
                              max_depth = 20L, max_failures = 6L,
                              recovery_max_times = 3L, recovery_pause = 60,
                              access_pause = 300) {
-    # `...` carries only httr settings; anything else is a misspelled argument.
-    unknown <- !vapply(list(...), function(x) is.null(x) || inherits(x, "request"), logical(1L))
-    if (any(unknown)) {
-        labels <- names(list(...))
-        if (is.null(labels)) labels <- rep("", length(unknown))
-        labels[!nzchar(labels)] <- "(unnamed)"
-        stop("Unknown argument: ", paste(labels[unknown], collapse = ", "),
-            ". Check the spelling in ?fedstat_download.",
-            call. = FALSE
-        )
-    }
+    fedstat_check_dots(list(...), "fedstat_download")
     if (!is.logical(preview_first) || length(preview_first) != 1L || is.na(preview_first)) {
         stop("preview_first must be TRUE or FALSE.", call. = FALSE)
     }
@@ -178,10 +168,7 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
         !is.finite(recovery_pause) || recovery_pause < 0) {
         stop("recovery_pause must be a nonnegative number.", call. = FALSE)
     }
-    if (!is.numeric(request_pause) || !length(request_pause) %in% 1:2 ||
-        any(!is.finite(request_pause)) || any(request_pause < 0) || is.unsorted(request_pause)) {
-        stop("request_pause must be a nonnegative number or increasing pair.", call. = FALSE)
-    }
+    fedstat_pause_check(request_pause)
     if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
         stop("cache_dir must be a folder for saved download parts.", call. = FALSE)
     }

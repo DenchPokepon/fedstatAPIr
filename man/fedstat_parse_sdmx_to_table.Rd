@@ -14,7 +14,8 @@ fedstat_parse_sdmx_to_table(
 \item{data_raw}{sdmx raw bytes or a path to an existing SDMX XML file}
 
 \item{return_type}{character, "data" or "dictionary", data for actual data,
-dictionary for sdmx lookup table (full data codes dictionary)}
+dictionary for sdmx lookup table (full data codes dictionary).
+\code{\link[=fedstat_dictionary]{fedstat_dictionary()}} gets the dictionary without choosing filters.}
 
 \item{try_to_parse_ObsValue}{logical, try to parse ObsValue column from character to R numeric type}
 }

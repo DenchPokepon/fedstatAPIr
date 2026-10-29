@@ -18,6 +18,27 @@ fedstat_positive <- function(x, name, integer = FALSE) {
     }
 }
 
+# `...` carries only httr settings; anything else is a misspelled argument.
+fedstat_check_dots <- function(dots, topic) {
+    unknown <- !vapply(dots, function(x) is.null(x) || inherits(x, "request"), logical(1L))
+    if (any(unknown)) {
+        labels <- names(dots)
+        if (is.null(labels)) labels <- rep("", length(unknown))
+        labels[!nzchar(labels)] <- "(unnamed)"
+        stop("Unknown argument: ", paste(labels[unknown], collapse = ", "),
+            ". Check the spelling in ?", topic, ".",
+            call. = FALSE
+        )
+    }
+}
+
+fedstat_pause_check <- function(request_pause) {
+    if (!is.numeric(request_pause) || !length(request_pause) %in% 1:2 ||
+        any(!is.finite(request_pause)) || any(request_pause < 0) || is.unsorted(request_pause)) {
+        stop("request_pause must be a nonnegative number or increasing pair.", call. = FALSE)
+    }
+}
+
 fedstat_retryable <- function(e) {
     inherits(e, "fedstat_transient") || inherits(e, "fedstat_rate_limit")
 }

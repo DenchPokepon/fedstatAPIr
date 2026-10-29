@@ -27,6 +27,12 @@ The `filters` list is the same. Differences:
 * A filter value that matches nothing on Fedstat is an error, not a warning.
 * `fedstat_cleanup(job)` deletes the saved parts after you have saved the table.
 
+To get the code dictionary, which 1.x returned with
+`fedstat_data_load_with_filters(..., return_type = "dictionary")` for a hand-picked
+selection, use `fedstat_dictionary("31074")`: it finds a selection with data
+itself. `fedstat_show_filters("31074")` prints the filters of an indicator and a
+`filters` list to start from.
+
 See `?fedstat_download` for request size, pauses, retries and what happens
 when Fedstat changes its filters during a download.
 
@@ -90,6 +96,7 @@ use the condition class instead of matching message text. All inherit from
 | `fedstat_metadata`, `fedstat_parse` | The indicator page or export had an unexpected structure. |
 | `fedstat_truncated` | Fedstat marked the export as incomplete. |
 | `fedstat_too_large` | The request exceeds the size limit; nothing was sent. |
+| `fedstat_no_data` | `fedstat_dictionary()` found no selection with data; pass `filters`. |
 | `fedstat_dictionary_changed` | Fedstat changed the filters during a `fedstat_download()`. |
 | `fedstat_time_limit`, `fedstat_unavailable`, `fedstat_budget` | A `fedstat_download()` run stopped; saved parts are kept, run it again later. |
 

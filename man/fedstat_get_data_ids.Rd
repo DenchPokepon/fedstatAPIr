@@ -78,6 +78,10 @@ session cookies for the downstream POST request.
 These are used internally by \code{fedstat_post_data_ids_filtered} and must not be removed.
 A shared in-memory session attribute keeps refreshed tokens consistent across
 filtered copies. Metadata can be reused; session handles are not a disk cache.
+
+The \code{fedstat_default_selection} attribute lists the values the website
+selects when the indicator page opens, as \code{"<filter_field_id>_<filter_value_id>"}.
+\code{\link[=fedstat_show_filters]{fedstat_show_filters()}} prints the filters in a readable form.
 }
 \examples{
 \dontrun{
@@ -86,6 +90,7 @@ data_ids <- fedstat_get_data_ids("31074")
 }
 }
 \seealso{
-\code{\link{fedstat_data_ids_filter},
+\code{\link{fedstat_show_filters},
+  \link{fedstat_data_ids_filter},
   \link{fedstat_post_data_ids_filtered}}
 }

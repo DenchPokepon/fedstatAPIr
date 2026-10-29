@@ -10,7 +10,8 @@
 #'
 #' @param data_raw sdmx raw bytes or a path to an existing SDMX XML file
 #' @param return_type character, "data" or "dictionary", data for actual data,
-#' dictionary for sdmx lookup table (full data codes dictionary)
+#' dictionary for sdmx lookup table (full data codes dictionary).
+#' [fedstat_dictionary()] gets the dictionary without choosing filters.
 #' @param try_to_parse_ObsValue logical, try to parse ObsValue column from character to R numeric type
 #'
 #' @return data.frame

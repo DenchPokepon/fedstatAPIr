@@ -41,6 +41,10 @@
 #' A shared in-memory session attribute keeps refreshed tokens consistent across
 #' filtered copies. Metadata can be reused; session handles are not a disk cache.
 #'
+#' The \code{fedstat_default_selection} attribute lists the values the website
+#' selects when the indicator page opens, as \code{"<filter_field_id>_<filter_value_id>"}.
+#' [fedstat_show_filters()] prints the filters in a readable form.
+#'
 #' @param indicator_id character, indicator id/code from indicator URL.
 #'   For example for indicator with URL https://www.fedstat.ru/indicator/37426 indicator id will be 37426
 #' @param ... other arguments passed to httr::GET
@@ -58,7 +62,8 @@
 #'   It can take the following values: lineObjectIds (filters in lines),
 #'   columnObjectIds (filters in columns), filterObjectIds (hidden filters for all data);
 #'
-#' @seealso \code{\link{fedstat_data_ids_filter},
+#' @seealso \code{\link{fedstat_show_filters},
+#'   \link{fedstat_data_ids_filter},
 #'   \link{fedstat_post_data_ids_filtered}}
 #'
 #' @export
@@ -145,6 +150,8 @@ fedstat_metadata <- function(html) {
             filter_field_title = x[["title"]],
             filter_value_id = names(filter_values),
             filter_value_title = unlist(lapply(filter_values, function(x) x[["title"]])),
+            # Values the website selects when the page opens
+            checked = vapply(filter_values, function(x) identical(tolower(paste(x[["checked"]])), "true"), logical(1L)),
             stringsAsFactors = FALSE, row.names = NULL
         )
     })
@@ -166,5 +173,9 @@ fedstat_metadata <- function(html) {
     )][] %>%
         as.data.frame()
 
+    # Kept as an attribute: the columns of data_ids are part of the 1.x interface.
+    checked <- result$checked
+    result$checked <- NULL
+    attr(result, "fedstat_default_selection") <- paste0(result$filter_field_id, "_", result$filter_value_id)[checked]
     result
 }
