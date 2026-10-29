@@ -122,8 +122,10 @@ ready `filters` list: the selection the website shows when the page opens.
 #> ...
 ```
 
-Copy the list into your code and edit it. The function also returns it, so
-`fedstat_download("31074", filters)` downloads that selection right away.
+This list is a starting point. Copy it into your script and replace the values
+with the ones you need, for example `"Год" = c("2023", "2024")`, or `"*"` for all
+values. The function also returns the list, so `fedstat_download("31074", filters)`
+downloads it unchanged.
 
 All values of one filter:
 
@@ -236,13 +238,28 @@ ind[grepl("потребительских цен", ind$title), c("id", "title")]
 
 ## Code dictionary 📖
 
-In the data, every classification has two columns: names (`s_grtov`) and codes
-(`s_grtov_code`). `fedstat_dictionary()` downloads the full dictionary: every
-code and name of every classification, including values that are not in your
-download.
+The values of many filters (territory, product, economic activity and so on)
+come from classifications. For each such filter the data table has two columns:
+one with names and one with codes. Fedstat names these columns, and they differ
+between indicators: in the consumer price example above, goods and services are
+`s_grtov` and `s_grtov_code`.
+
+`fedstat_dictionary()` downloads the full dictionary of an indicator: every code
+and name of every classification, including values that are not in your
+download. First see which classifications it has:
 
 ```r
 dictionary <- fedstat_dictionary("31074")
+unique(dictionary[c("field_id", "field_title")])
+#>      field_id                                                             field_title
+#> 1       s_POK                                                         Виды показателя
+#> 10    s_grtov                                                    Виды товаров и услуг
+#> 1115  s_OKATO Классификатор объектов административно-территориального деления (ОКАТО)
+```
+
+`field_id` is the column name in the data. Codes and names of one classification:
+
+```r
 dictionary[dictionary$field_id == "s_grtov", c("value_id", "value_title")]
 #>    value_id                        value_title
 #> 10        1                Все товары и услуги
@@ -271,7 +288,12 @@ codes.
 `fedstat_post_data_ids_filtered()` and `fedstat_parse_sdmx_to_table()` are the
 separate steps of a single request, without parts or pauses.
 `fedstat_data_load_with_filters()` from version 1.x still works but is
-deprecated. The same request size limits apply to them. See
+deprecated. The same request size limits apply to them.
+
+Each function has a detailed help page with examples: `?fedstat_get_data_ids`,
+`?fedstat_data_ids_filter`, `?fedstat_post_data_ids_filtered`,
+`?fedstat_parse_sdmx_to_table`. For example, `fedstat_post_data_ids_filtered()`
+can also download the table as Excel (`data_format = "excel"`). See
 [MIGRATION.md](MIGRATION.md) for what changed since 1.x.
 
 ## If Fedstat refuses the package 🚪
