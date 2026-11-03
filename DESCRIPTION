@@ -1,6 +1,6 @@
 Package: fedstatAPIr
 Title: Unofficial API for Fedstat (Rosstat EMISS System) for Automatic and Efficient Data Queries
-Version: 2.0.0
+Version: 2.1.0
 Authors@R: c(
     person(given = "Denis",
            family = "Krylov",
@@ -11,7 +11,10 @@ Authors@R: c(
 	       role =c("aut"),
            email = "d.kibalnikov@gmail.com")     
     )  
-Description: An API for automatic data queries to the fedstat <https://www.fedstat.ru>, using a small set of functions with a common interface.
+Description: Downloads indicator data from Fedstat (EMISS), the Russian official
+    statistics portal <https://www.fedstat.ru>. Large selections are downloaded in
+    small, paced parts that are saved to disk and resume after interruptions.
+    Also lists the filters and the code dictionaries of indicators.
 License: MIT + file LICENSE
 URL: https://github.com/DenchPokepon/fedstatAPIr
 BugReports: https://github.com/DenchPokepon/fedstatAPIr/issues

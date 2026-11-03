@@ -72,6 +72,30 @@ fedstat_part_size_warning <- paste(
     "Set allow_large_requests = TRUE to turn off this warning."
 )
 
+fedstat_interactive <- function() interactive()
+
+fedstat_ask <- function(question) utils::askYesNo(question)
+
+# Nothing is written outside tempdir() by default without the user's consent
+# (CRAN policy). A folder that already exists was created with consent before,
+# so resuming needs no new answer. Scripts get a temporary folder.
+fedstat_choose_cache_dir <- function(name) {
+    if (dir.exists(name)) {
+        return(name)
+    }
+    if (fedstat_interactive()) {
+        answer <- fedstat_ask(paste0(
+            "Save the download in ", file.path(getwd(), name),
+            "? Running the same call again continues there."
+        ))
+        if (isTRUE(answer)) {
+            return(name)
+        }
+        stop("Set cache_dir to choose a folder for the download.", call. = FALSE)
+    }
+    structure(file.path(tempdir(), name), temporary = TRUE)
+}
+
 # Same selection, same folder: running the same call again resumes. Equivalent
 # spellings of the filters (case, spacing, order) share a folder.
 fedstat_default_cache_dir <- function(indicator_id, filters) {

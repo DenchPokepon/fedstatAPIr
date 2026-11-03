@@ -19,8 +19,10 @@ The `filters` list is the same. Differences:
 
 * `cache_dir` is a folder for saved parts. If a run stops, run the same call
   again and only unfinished parts are downloaded. Each run has one hour by
-  default (`total_time_limit_seconds`). Without `cache_dir`, a folder named after
-  the indicator and the filters is created in the current folder.
+  default (`total_time_limit_seconds`). Without `cache_dir`, you are asked
+  whether to create a folder named after the indicator and the filters in the
+  current folder; scripts use R's temporary folder, which is deleted when R
+  closes. Set `cache_dir` in scripts.
 * `fedstat_collect()` returns `ObsValue` as numbers by default, like
   `try_to_parse_ObsValue = TRUE` in 1.x. If a value is not a number, it stops
   and names the values; use `try_to_parse_ObsValue = FALSE` for text.

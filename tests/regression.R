@@ -1817,18 +1817,31 @@ local({
         inherits(curl_failure("Operation timed out after 300000 milliseconds with 0 bytes received"), "fedstat_timeout"),
         !inherits(curl_failure("Connection timed out after 20001 milliseconds"), "fedstat_timeout"),
         !inherits(curl_failure("Empty reply from server"), "fedstat_timeout"),
-        inherits(curl_failure("Empty reply from server"), "fedstat_transient")
+        inherits(curl_failure("Empty reply from server"), "fedstat_transient"),
+        # Fedstat's answer to a request that is too heavy (seen live)
+        inherits(curl_failure("Failure when receiving data from the peer"), "fedstat_transient"),
+        !inherits(curl_failure("Failure when receiving data from the peer"), "fedstat_unreachable"),
+        !inherits(curl_failure("Recv failure: Connection was reset"), "fedstat_unreachable"),
+        inherits(curl_failure("transfer closed with outstanding read data remaining"), "fedstat_transient"),
+        inherits(curl_failure("Failed to connect to www.fedstat.ru port 443: Connection refused"), "fedstat_unreachable"),
+        inherits(curl_failure("Could not resolve host: www.fedstat.ru"), "fedstat_unreachable"),
+        inherits(curl_failure("Connection timed out after 20001 milliseconds"), "fedstat_unreachable")
     )
     gateway <- tryCatch(internal("fedstat_response")(response("", 504L), "export"), error = identity)
     stopifnot(inherits(gateway, "fedstat_timeout"), inherits(gateway, "fedstat_transient"))
     stopifnot(!inherits(tryCatch(internal("fedstat_response")(response("", 503L), "export"), error = identity), "fedstat_timeout"))
 })
 
-# An outage pauses instead of splitting; a later healthy run rejoins earlier timeout splits.
+# An outage pauses instead of splitting: Fedstat can't be reached, or the page
+# fails when the session is renewed. A connection Fedstat drops again after the
+# page loaded points at the part's size, as does a timeout. A later healthy run
+# rejoins splits made after failures.
 local({
     path <- tempfile()
     on.exit(unlink(path, recursive = TRUE))
-    failure <- "outage"
+    failure <- "unreachable"
+    calls <- 0L
+    limit <- 2L
     mock(
         "fedstat_read_ids", function(..., before = function() NULL) {
             before()
@@ -1836,7 +1849,16 @@ local({
         },
         mock("fedstat_post_data_ids_filtered", function(data_ids, ...) {
             attr(data_ids, "fedstat_session")$before()
-            if (failure == "outage") internal("fedstat_error")("Empty reply from server", "transient", "export")
+            calls <<- calls + 1L
+            if (failure == "unreachable") internal("fedstat_error")("Failed to connect", c("unreachable", "transient"), "export")
+            # A heavy export drops, and the page then fails while Fedstat is busy.
+            if (failure == "page_down" && nrow(fake_data(data_ids)) > 2L) {
+                if (calls %% 2L) internal("fedstat_error")("Empty reply from server", "transient", "export")
+                internal("fedstat_error")("Empty reply from server", "transient", "token")
+            }
+            if (failure == "dropped" && nrow(fake_data(data_ids)) > limit) {
+                internal("fedstat_error")("Failure when receiving data from the peer", "transient", "export")
+            }
             if (failure == "timeout") internal("fedstat_error")("Timeout was reached", c("timeout", "transient"), "export")
             serialize(fake_data(data_ids), NULL)
         }, mock(
@@ -1848,23 +1870,60 @@ local({
                         max_failures = 20L, verbose = FALSE, recovery_max_times = 1
                     )
                 }
-                expect_error(run(), "fedstat_transient")
-                events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-                types <- vapply(events, `[[`, "", "event")
-                stopifnot("RECOVER" %in% types, !"SPLIT" %in% types, length(readRDS(file.path(path, "manifest.rds"))$parts) == 1L)
+                events <- function() {
+                    vapply(lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON), `[[`, "", "event")
+                }
+                expect_error(run(), "fedstat_unreachable")
+                stopifnot("RECOVER" %in% events(), !"SPLIT" %in% events(), length(readRDS(file.path(path, "manifest.rds"))$parts) == 1L)
+                # The page failing after each drop leads to a pause first; the
+                # second drop of the same part, after the pause, splits it.
+                unlink(path, recursive = TRUE)
+                failure <- "page_down"
+                calls <- 0L
+                job <- run()
+                m <- readRDS(file.path(path, "manifest.rds"))
+                stopifnot(
+                    job$complete, nrow(fedstat_collect(job)) == 4L, m$parts[[1]]$split_reason == "dropped",
+                    which(events() == "RECOVER")[1L] < which(events() == "SPLIT")[1L]
+                )
+                unlink(path, recursive = TRUE)
+                # One split after failures is a hiccup: no advice yet.
+                advice <- character()
+                keep <- function(w) {
+                    if (grepl("For the next runs", conditionMessage(w))) advice <<- c(advice, conditionMessage(w))
+                    invokeRestart("muffleWarning")
+                }
+                failure <- "dropped"
+                job <- withCallingHandlers(run(), warning = keep)
+                m <- readRDS(file.path(path, "manifest.rds"))
+                stopifnot(job$complete, m$parts[[1]]$split_reason == "dropped", nrow(fedstat_collect(job)) == 4L, !length(advice))
+                unlink(path, recursive = TRUE)
+                # Parts that keep failing get one suggestion to make them smaller.
+                limit <- 1L
+                job <- withCallingHandlers(run(), warning = keep)
+                stopifnot(
+                    job$complete, nrow(fedstat_collect(job)) == 4L, length(advice) == 1L,
+                    grepl("parts of 4 and 2 filter combinations", advice),
+                    any(grepl("For the next runs", readLines(file.path(path, "download.log")), fixed = TRUE))
+                )
+                unlink(path, recursive = TRUE)
                 failure <- "timeout"
-                expect_error(run(), "fedstat_transient")
+                expect_error(withCallingHandlers(run(), warning = keep), "fedstat_transient")
                 m <- readRDS(file.path(path, "manifest.rds"))
                 stopifnot(length(m$parts) > 1L, m$parts[[1]]$split_reason == "timeout")
                 failure <- "none"
                 job <- run()
-                events <- lapply(readLines(file.path(path, "download.log")), jsonlite::fromJSON)
-                types <- vapply(events, `[[`, "", "event")
-                stopifnot(job$complete, identical(job$parts$part, "1"), "MERGE" %in% types, nrow(fedstat_collect(job)) == 4L)
+                stopifnot(job$complete, identical(job$parts$part, "1"), "MERGE" %in% events(), nrow(fedstat_collect(job)) == 4L)
             })
         ))
     )
 })
+advice <- internal("fedstat_smaller_parts_advice")
+stopifnot(
+    grepl("max_nominal_cells_request = 50000.", advice(c(221000, 110500)), fixed = TRUE),
+    grepl("max_nominal_cells_request = 20000.", advice(c(50000, 50000)), fixed = TRUE),
+    grepl("max_nominal_cells_request = 10000.", advice(c(25000, 30000)), fixed = TRUE)
+)
 cat("Splitting and outage recovery tests passed.\n")
 
 # Collected values are numbers by default; a non-number stops before any part is removed.
@@ -2044,16 +2103,43 @@ local({
         output <<- c(output, conditionMessage(m))
         invokeRestart("muffleMessage")
     }
+    # Scripts never write outside tempdir() by default: a temporary folder,
+    # named the same way, with a message that it will be deleted.
     job <- with_batch(withCallingHandlers(fedstat_download("31074", "*", request_pause = 0), message = keep))
+    temporary <- file.path(normalizePath(tempdir()), name("31074", "*"))
+    stopifnot(
+        isTRUE(job$complete), normalizePath(job$path) == normalizePath(temporary),
+        !dir.exists(file.path(home, name("31074", "*"))),
+        any(grepl("temporary folder that is deleted when R closes", output, fixed = TRUE))
+    )
+    unlink(temporary, recursive = TRUE)
+    # Interactively, the user is asked once; "yes" creates the folder here.
+    asked <- 0L
+    interactive_run <- function(answer, ...) {
+        mock("fedstat_interactive", function() TRUE, mock("fedstat_ask", answer, with_batch(
+            withCallingHandlers(fedstat_download("31074", ..., request_pause = 0), message = keep)
+        )))
+    }
+    output <- character()
+    job <- interactive_run(function(question) {
+        asked <<- asked + 1L
+        stopifnot(grepl(name("31074", "*"), question, fixed = TRUE))
+        TRUE
+    }, "*")
     folder <- file.path(normalizePath(home), name("31074", "*"))
     stopifnot(
-        isTRUE(job$complete), normalizePath(job$path) == normalizePath(folder),
+        isTRUE(job$complete), normalizePath(job$path) == normalizePath(folder), asked == 1L,
         file.exists(file.path(folder, "download.log")),
         any(grepl("Saving the download in", output, fixed = TRUE))
     )
-    # Running the same call again finds the finished download in the same folder.
-    again <- with_batch(withCallingHandlers(fedstat_download("31074", "*", request_pause = 0, verbose = FALSE), message = keep))
+    # Running the same call again finds the folder without asking.
+    again <- interactive_run(function(question) stop("asked again"), "*", verbose = FALSE)
     stopifnot(normalizePath(again$path) == normalizePath(folder), nrow(fedstat_collect(again)) == 4L)
+    # "No" stops before anything is created or requested.
+    other <- list(Year = "2024", Area = "*")
+    expect_error(interactive_run(function(question) FALSE, other), pattern = "Set cache_dir")
+    expect_error(interactive_run(function(question) NA, other), pattern = "Set cache_dir")
+    stopifnot(!dir.exists(file.path(home, name("31074", normalize(other)))))
 })
 cat("Default folder and argument order tests passed.\n")
 

@@ -18,16 +18,25 @@
 #'   ignored. The single string `"*"` instead of a list selects everything.
 #' @param cache_dir Folder for the saved parts, created if needed. Use one folder
 #'   per download and keep it until you have collected and saved the table. If
-#'   omitted, a folder such as `fedstat-31074-1a2b3c4d` is created in the current
-#'   folder: its name depends on the indicator and the filters, so running the
-#'   same call again continues in the same folder. The full path is shown.
+#'   omitted, the folder is named like `fedstat-31074-1a2b3c4d` after the
+#'   indicator and the filters, so running the same call again continues in the
+#'   same folder. In an interactive session you are asked once whether to create
+#'   it in the current folder; if it already exists there, it is used without
+#'   asking. Otherwise (for example in a script run with `Rscript`) it is created
+#'   in R's temporary folder, which is deleted when R closes. The full path is
+#'   shown.
 #' @param ... For advanced users: httr settings applied to every request, for
 #'   example `httr::user_agent("my-project")` or `httr::config(connecttimeout = 20)`.
 #'   Any other unnamed or unknown argument is an error. Arguments after `...`
 #'   must be named in full.
 #' @param max_nominal_cells_request Largest number of filter combinations in one
-#'   request. Default 50,000. Above 50,000 you get a warning, above 100,000
-#'   `allow_large_requests = TRUE` is required, and 250,000 is the maximum.
+#'   request; the main setting for speed and reliability. Default 50,000. If
+#'   parts keep failing, lower it to 20,000 or 10,000 before trying
+#'   `preview_first`; running the same call again with a smaller value keeps the
+#'   finished parts. If most combinations of an indicator are empty, parts are
+#'   answered quickly and a larger value such as 100,000 is much faster. Above
+#'   50,000 you get a warning, above 100,000 `allow_large_requests = TRUE` is
+#'   required, and 250,000 is the maximum.
 #' @param allow_large_requests `TRUE` turns off the warning for
 #'   `max_nominal_cells_request` above 50,000 and allows up to 250,000.
 #' @param preview_first If `TRUE`, ask Fedstat to show each part's table first,
@@ -82,10 +91,14 @@
 #' @section Reliability: Requests are sequential and paced. A failed request is
 #'   retried after a pause. A part is halved only when its size is the likely
 #'   cause: a request timeout, a gateway timeout (HTTP 504), an export marked as
-#'   truncated, or a refusal that persists after renewing the session. Dropped or
-#'   refused connections, server errors and rate limits lead to a recovery pause
-#'   instead. Splits made after failures are undone on the next run if none of
-#'   their parts was saved. Fedstat answers some empty selections with a redirect;
+#'   truncated, a refusal that persists after renewing the session, or a part
+#'   whose export Fedstat drops or answers with a server error twice in a run.
+#'   Fedstat often answers a request that is too heavy this way, and its
+#'   indicator page may fail for a while afterwards. When Fedstat can't be
+#'   reached, its page fails, or it limits the request rate, the download pauses
+#'   to let it recover. After the second split caused by failures in a run, a
+#'   warning suggests a smaller `max_nominal_cells_request`. Splits made after
+#'   failures are undone on the next run if none of their parts was saved. Fedstat answers some empty selections with a redirect;
 #'   a part counts as empty only when Fedstat's table preview confirms zero rows.
 #'
 #' @section When Fedstat changes its filters: The selected filters are compared
@@ -152,9 +165,6 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
     indicator_id <- fedstat_indicator_id(indicator_id)
     filters <- fedstat_filters(filters)
     default_dir <- is.null(cache_dir)
-    # Set before log_file's default is evaluated, which refers to cache_dir.
-    if (default_dir) cache_dir <- fedstat_default_cache_dir(indicator_id, filters)
-    path <- cache_dir
     time_left <- function() {
         seconds <- total_time_limit_seconds - (fedstat_elapsed() - started)
         if (seconds < 0.001) fedstat_time_expired(total_time_limit_seconds)
@@ -169,12 +179,22 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
         stop("recovery_pause must be a nonnegative number.", call. = FALSE)
     }
     fedstat_pause_check(request_pause)
+    # Set before log_file's default is evaluated, which refers to cache_dir.
+    # Asked only after every other argument is known to be valid.
+    if (default_dir) cache_dir <- fedstat_choose_cache_dir(fedstat_default_cache_dir(indicator_id, filters))
+    temporary <- isTRUE(attr(cache_dir, "temporary"))
+    path <- cache_dir
     if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
         stop("cache_dir must be a folder for saved download parts.", call. = FALSE)
     }
     dir.create(path, recursive = TRUE, showWarnings = FALSE)
     path <- normalizePath(path, mustWork = TRUE)
-    if (default_dir && verbose != "quiet") {
+    if (temporary) {
+        message(
+            "Saving the download in a temporary folder that is deleted when R closes: ", path,
+            ". Set cache_dir to keep the download and continue it in a later session."
+        )
+    } else if (default_dir && verbose != "quiet") {
         message("Saving the download in ", path, ". Running the same call again continues there; set cache_dir to choose the folder.")
     }
     lock <- fedstat_lock(path, "fedstat_download()")
@@ -496,6 +516,10 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
             ),
             cardinalities = as.list(counts), nominal_cells = format(prod(counts), scientific = FALSE, trim = TRUE)
             )
+            # Sizes of parts split after failures in this run, and dropped
+            # exports per part.
+            failed_sizes <- numeric()
+            drops <- integer()
             split_part <- function(index, reason) {
                 part <- manifest$parts[[index]]
                 groups <- fedstat_partition(selection, part$rows, if (reason == "size_limit") max_nominal_cells_request)
@@ -507,6 +531,15 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
                         "Subdivision depth reached; raise max_depth or inspect the selection.",
                         "budget", "schedule"
                     )
+                }
+                if (reason != "size_limit") {
+                    failed_sizes <<- c(failed_sizes, fedstat_nominal_cells(selection[setdiff(part$rows, manifest$unavailable$row), , drop = FALSE]))
+                    # Once is a hiccup; twice suggests the part size does not suit
+                    # this indicator, or Fedstat is struggling. Either way smaller
+                    # parts help, and only the user can make that the default.
+                    if (length(failed_sizes) == 2L) {
+                        warning(fedstat_smaller_parts_advice(failed_sizes), call. = FALSE, immediate. = TRUE)
+                    }
                 }
                 manifest$parts[[index]]$status <<- "split"
                 manifest$parts[[index]]$split_reason <<- reason
@@ -635,9 +668,20 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
                     token <- isTRUE(result$stage %in% c("export", "grid")) && (inherits(result, "fedstat_token") ||
                         inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
                     transfer <- inherits(result, "fedstat_transient") && isTRUE(result$stage %in% c("export", "grid"))
-                    # Only timeouts suggest the request is too big; dropped or refused
-                    # connections mean Fedstat is unwell, which a pause handles better.
-                    if (transfer && !inherits(result, "fedstat_timeout")) outage <- TRUE
+                    # An unreachable server or a failing page is an outage.
+                    if ((transfer && inherits(result, "fedstat_unreachable")) ||
+                        (fedstat_retryable(result) && !isTRUE(result$stage %in% c("export", "grid")))) {
+                        outage <- TRUE
+                    }
+                    # Fedstat often drops the connection or answers with a server
+                    # error instead of finishing a request that is too heavy, and
+                    # may then fail its page for a while too. An export is only
+                    # sent after the page loaded, so a part whose export failed
+                    # this way twice in a run, even across recovery pauses, is
+                    # the likely cause.
+                    if (transfer && !inherits(result, "fedstat_unreachable") && !inherits(result, "fedstat_timeout")) {
+                        drops[part$id] <- if (is.na(drops[part$id])) 1L else drops[part$id] + 1L
+                    }
                     if (transfer || token) failures <- failures + 1L
                     report("PART_ERROR", conditionMessage(result),
                         error_class = class(result)[1L],
@@ -662,12 +706,22 @@ fedstat_download <- function(indicator_id, filters = list(), cache_dir = NULL, .
                 if (inherits(result, "error")) {
                     rejected <- repaired && isTRUE(result$stage %in% c("export", "grid")) &&
                         (inherits(result, "fedstat_redirect") || inherits(result, "fedstat_unexpected_response"))
+                    timed_out <- inherits(result, "fedstat_timeout") && isTRUE(result$stage %in% c("export", "grid"))
                     splittable <- rejected || inherits(result, "fedstat_truncated") ||
-                        (!outage && inherits(result, "fedstat_timeout") && isTRUE(result$stage %in% c("export", "grid")))
+                        (!outage && timed_out) ||
+                        (!inherits(result, "fedstat_unreachable") && isTRUE(drops[part$id] >= 2L))
                     if (splittable) {
                         delay <- fedstat_backoff(retry_max_times, result)
                         session$token <- NULL
-                        reason <- if (rejected) "rejected_after_refresh" else if (inherits(result, "fedstat_truncated")) "truncated" else "timeout"
+                        reason <- if (rejected) {
+                            "rejected_after_refresh"
+                        } else if (inherits(result, "fedstat_truncated")) {
+                            "truncated"
+                        } else if (timed_out) {
+                            "timeout"
+                        } else {
+                            "dropped"
+                        }
                         if (split_part(index, reason)) next
                     }
                     if (recover(result)) next
@@ -725,6 +779,20 @@ fedstat_compare_definitions <- function(selection, metadata) {
         renamed = which(found & selection$filter_value_title != metadata$filter_value_title[at]),
         new_title = metadata$filter_value_title[at],
         layout = ifelse(is.na(layout), selection$filter_field_object_ids, layout)
+    )
+}
+
+fedstat_smaller_parts_advice <- function(failed_sizes) {
+    half <- min(failed_sizes) / 2
+    step <- 10^floor(log10(half))
+    suggested <- step * c(1, 2, 5)[findInterval(half / step, c(1, 2, 5))]
+    paste0(
+        "Fedstat failed on parts of ", paste(fedstat_count(failed_sizes), collapse = " and "),
+        " filter combinations, so they were split into smaller ones. These parts may be ",
+        "too large for this indicator, or Fedstat may be overloaded right now; smaller ",
+        "parts help in both cases. For the next runs of this download, set ",
+        "max_nominal_cells_request = ", format(suggested, scientific = FALSE),
+        ". Saved parts are kept."
     )
 }
 

@@ -37,9 +37,13 @@ ignored. The single string \code{"*"} instead of a list selects everything.}
 
 \item{cache_dir}{Folder for the saved parts, created if needed. Use one folder
 per download and keep it until you have collected and saved the table. If
-omitted, a folder such as \verb{fedstat-31074-1a2b3c4d} is created in the current
-folder: its name depends on the indicator and the filters, so running the
-same call again continues in the same folder. The full path is shown.}
+omitted, the folder is named like \verb{fedstat-31074-1a2b3c4d} after the
+indicator and the filters, so running the same call again continues in the
+same folder. In an interactive session you are asked once whether to create
+it in the current folder; if it already exists there, it is used without
+asking. Otherwise (for example in a script run with \code{Rscript}) it is created
+in R's temporary folder, which is deleted when R closes. The full path is
+shown.}
 
 \item{...}{For advanced users: httr settings applied to every request, for
 example \code{httr::user_agent("my-project")} or \code{httr::config(connecttimeout = 20)}.
@@ -47,8 +51,13 @@ Any other unnamed or unknown argument is an error. Arguments after \code{...}
 must be named in full.}
 
 \item{max_nominal_cells_request}{Largest number of filter combinations in one
-request. Default 50,000. Above 50,000 you get a warning, above 100,000
-\code{allow_large_requests = TRUE} is required, and 250,000 is the maximum.}
+request; the main setting for speed and reliability. Default 50,000. If
+parts keep failing, lower it to 20,000 or 10,000 before trying
+\code{preview_first}; running the same call again with a smaller value keeps the
+finished parts. If most combinations of an indicator are empty, parts are
+answered quickly and a larger value such as 100,000 is much faster. Above
+50,000 you get a warning, above 100,000 \code{allow_large_requests = TRUE} is
+required, and 250,000 is the maximum.}
 
 \item{allow_large_requests}{\code{TRUE} turns off the warning for
 \code{max_nominal_cells_request} above 50,000 and allows up to 250,000.}
@@ -137,10 +146,14 @@ above 50,000 combinations, \code{allow_large_requests = TRUE} needed above
  Requests are sequential and paced. A failed request is
 retried after a pause. A part is halved only when its size is the likely
 cause: a request timeout, a gateway timeout (HTTP 504), an export marked as
-truncated, or a refusal that persists after renewing the session. Dropped or
-refused connections, server errors and rate limits lead to a recovery pause
-instead. Splits made after failures are undone on the next run if none of
-their parts was saved. Fedstat answers some empty selections with a redirect;
+truncated, a refusal that persists after renewing the session, or a part
+whose export Fedstat drops or answers with a server error twice in a run.
+Fedstat often answers a request that is too heavy this way, and its
+indicator page may fail for a while afterwards. When Fedstat can't be
+reached, its page fails, or it limits the request rate, the download pauses
+to let it recover. After the second split caused by failures in a run, a
+warning suggests a smaller \code{max_nominal_cells_request}. Splits made after
+failures are undone on the next run if none of their parts was saved. Fedstat answers some empty selections with a redirect;
 a part counts as empty only when Fedstat's table preview confirms zero rows.
 }
 

@@ -1,6 +1,6 @@
 # fedstatAPIr
 
-[Русская версия](README.md)
+[Русская версия](https://github.com/DenchPokepon/fedstatAPIr/blob/master/README.md)
 
 An R package that downloads statistics from [Fedstat / EMISS](https://www.fedstat.ru),
 the Russian official statistics portal: choose an indicator and filters, get a
@@ -76,8 +76,12 @@ head(data[c("s_grtov", "s_POK", "ObsValue")], 5)
   classification codes.
 * The folder `cpi-download` is created in R's current folder (the project folder
   in an RStudio project). A full path such as `"G:/research/cpi-download"` works too.
-  Without `cache_dir`, the package creates a folder such as `fedstat-31074-1a2b3c4d`
-  and tells you where it is. The same filters always get the same folder.
+  Without `cache_dir`, the package offers to create a folder such as
+  `fedstat-31074-1a2b3c4d` in the current folder. The same filters always get the
+  same folder, and running the call again continues there without asking. A
+  script run with `Rscript` can't be asked, so it downloads into R's temporary
+  folder, which is deleted when R closes. To continue a download on another day,
+  set `cache_dir`.
 
 About filters:
 
@@ -190,9 +194,15 @@ Find the start of the message in the table.
 | `Fedstat returned no data` | The selection has no data (from `fedstat_dictionary()`) | Pass filters that show data on the website |
 | `Unknown argument` | A setting name is misspelled | Check the spelling in `?fedstat_download` |
 
-**Parts keep failing?** Add `preview_first = TRUE` to the call. Before each part,
-the package then asks Fedstat to show the table first, like pressing "Apply" on
-the website, and only then downloads it. Sometimes Fedstat only returns data this
+**Parts keep failing?** First make the parts smaller:
+`max_nominal_cells_request = 20000`, and if that doesn't help, `10000`. For
+indicators where almost every combination has data, 50,000 can be too much. Run
+the same call with the new value in the same folder: finished parts are kept,
+and the rest is downloaded in smaller parts.
+
+If that doesn't help either, add `preview_first = TRUE`. Before each part, the
+package then asks Fedstat to show the table first, like pressing "Apply" on the
+website, and only then downloads it. Sometimes Fedstat only returns data this
 way. The download takes about twice as long. You can switch it on in the middle
 of a download, in the same folder.
 
@@ -200,14 +210,16 @@ of a download, in the same folder.
 
 * `filters = "*"` instead of a list selects everything: all years, territories
   and other values. This can take many hours.
-* `max_nominal_cells_request` sets the part size in combinations. The default,
-  50,000, is reliable for any indicator. If an indicator has many empty
-  combinations (for example, not every product is sold in every region every
-  month), parts are mostly empty and Fedstat answers them quickly. Then larger
-  parts make the download much faster and are still reliable: try
-  `max_nominal_cells_request = 100000`. Above 50,000 the package warns you, above
-  100,000 it also needs `allow_large_requests = TRUE` (which also turns off the
-  warning), and 250,000 is the maximum.
+* `max_nominal_cells_request` sets the part size in combinations; the default is
+  50,000. It is the main setting for speed and reliability, and worth tuning to
+  the indicator:
+  * **many empty combinations** (for example, not every product is sold in every
+    region every month): parts are mostly empty and Fedstat answers them quickly.
+    Larger parts make the download much faster: try `100000`. Above 50,000 the
+    package warns you, above 100,000 it also needs `allow_large_requests = TRUE`
+    (which also turns off the warning), and 250,000 is the maximum;
+  * **parts fail or wait long for an answer**: lower it to `20000` or `10000`.
+    This helps more often than `preview_first = TRUE`.
 * `timeout_seconds = 300` waits up to 5 minutes for a response instead of 3.
 * `fedstat_collect()` loads the whole table into memory.
 
@@ -294,7 +306,7 @@ Each function has a detailed help page with examples: `?fedstat_get_data_ids`,
 `?fedstat_data_ids_filter`, `?fedstat_post_data_ids_filtered`,
 `?fedstat_parse_sdmx_to_table`. For example, `fedstat_post_data_ids_filtered()`
 can also download the table as Excel (`data_format = "excel"`). See
-[MIGRATION.md](MIGRATION.md) for what changed since 1.x.
+[MIGRATION.md](https://github.com/DenchPokepon/fedstatAPIr/blob/master/MIGRATION.md) for what changed since 1.x.
 
 ## If Fedstat refuses the package 🚪
 
@@ -332,4 +344,4 @@ Thank you for using it!
 ## Contribute
 
 Run `R CMD check --as-cran` before committing changes. Formatting and validation
-commands are in [tools/README.md](tools/README.md).
+commands are in [tools/README.md](https://github.com/DenchPokepon/fedstatAPIr/blob/master/tools/README.md).

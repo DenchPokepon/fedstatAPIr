@@ -169,13 +169,19 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
                         ))
                         invokeRestart("abort")
                     }
-                    temporary <- grepl("timed? ?out|timeout|resolve|connect|receiv|recv|send|partial|empty|reset|slow",
+                    temporary <- grepl("timed? ?out|timeout|resolve|connect|receiv|recv|send|partial|empty|reset|slow|closed|stream",
                         conditionMessage(e),
                         ignore.case = TRUE
                     )
                     # Connect/resolve timeouts mean no server answered: not a size hint.
                     timeout <- grepl("timed? ?out|timeout", conditionMessage(e), ignore.case = TRUE) &&
                         !grepl("connect|resolv", conditionMessage(e), ignore.case = TRUE)
+                    # No server answered at all, as opposed to a connection that
+                    # Fedstat accepted and then dropped.
+                    unreachable <- grepl("resolv|(could not|couldn't|failed to) connect|connection refused|connection timed out|network is unreachable",
+                        conditionMessage(e),
+                        ignore.case = TRUE
+                    )
                     return(structure(
                         list(
                             message = paste0("Fedstat ", stage, ": ", conditionMessage(e)),
@@ -183,6 +189,7 @@ fedstat_request <- function(method, url, ..., handle, timeout_seconds,
                         ),
                         class = c(
                             if (timeout) "fedstat_timeout",
+                            if (unreachable) "fedstat_unreachable",
                             if (temporary) "fedstat_transient" else "fedstat_transport",
                             "fedstat_error", "error", "condition"
                         )
