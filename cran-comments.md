@@ -1,7 +1,7 @@
 ## Submission
 
-fedstatAPIr 2.1.0, a major update from 1.1.0 (2.0.0 was released on GitHub
-only). New functions `fedstat_download()`, `fedstat_collect()` and
+fedstatAPIr 2.1.0, a major update from 1.1.0, the current CRAN version.
+New functions `fedstat_download()`, `fedstat_collect()` and
 `fedstat_cleanup()` download data in small, paced, resumable parts;
 `fedstat_show_filters()` and `fedstat_dictionary()` describe an indicator's
 filters and codes. Every function that requests data now limits the size of

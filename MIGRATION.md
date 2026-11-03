@@ -1,8 +1,9 @@
 # Upgrading from fedstatAPIr 1.x
 
-Version 2.0.0 adds `fedstat_download()`: it downloads in small parts, pauses
+Version 2.1.0 adds `fedstat_download()`: it downloads in small parts, pauses
 between requests and continues after an interruption. Use it for new work.
-Existing 1.x scripts keep working without changes.
+Existing 1.x scripts keep working, unless they request more than 100,000 filter
+combinations at once (see [Request size limits](#request-size-limits)).
 
 ## Switch to `fedstat_download()`
 
@@ -10,7 +11,7 @@ Existing 1.x scripts keep working without changes.
 # 1.x: one request for the whole selection
 data <- fedstat_data_load_with_filters("31074", filters = filters)
 
-# 2.0: small parts, saved progress
+# 2.1: small parts, saved progress
 job <- fedstat_download("31074", filters = filters, cache_dir = "cpi-download")
 data <- fedstat_collect(job)
 ```
