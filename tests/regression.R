@@ -2123,7 +2123,9 @@ local({
     output <- character()
     job <- interactive_run(function(question) {
         asked <<- asked + 1L
-        stopifnot(grepl(name("31074", "*"), question, fixed = TRUE))
+        # The path is shown before the question; the question stays short so
+        # that R's terminal does not scroll the input line.
+        stopifnot(nchar(question) < 40L, any(grepl(name("31074", "*"), output, fixed = TRUE)))
         TRUE
     }, "*")
     folder <- file.path(normalizePath(home), name("31074", "*"))

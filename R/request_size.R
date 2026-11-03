@@ -84,14 +84,17 @@ fedstat_choose_cache_dir <- function(name) {
         return(name)
     }
     if (fedstat_interactive()) {
-        answer <- fedstat_ask(paste0(
-            "Save the download in ", file.path(getwd(), name),
-            "? Running the same call again continues there."
-        ))
+        # The path goes on its own line: R's terminal (Rterm) scrolls an input
+        # line wider than the window and marks it with "$", hiding the answer.
+        message(
+            "fedstat_download() saves the downloaded parts in a folder. Without cache_dir it creates:\n  ",
+            file.path(getwd(), name), "\nRunning the same call again continues there."
+        )
+        answer <- fedstat_ask("Create this folder?")
         if (isTRUE(answer)) {
             return(name)
         }
-        stop("Set cache_dir to choose a folder for the download.", call. = FALSE)
+        stop("No folder was created. Set cache_dir to choose one, for example cache_dir = \"cpi-download\".", call. = FALSE)
     }
     structure(file.path(tempdir(), name), temporary = TRUE)
 }
