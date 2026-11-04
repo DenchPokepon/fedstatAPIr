@@ -25,8 +25,10 @@ jobs:
           r-version: release
           use-public-rspm: true
 
-      # LaTeX for the PDF manual, which CRAN builds too.
+      # LaTeX for the PDF manual and HTML Tidy for the HTML one, as on CRAN.
       - uses: r-lib/actions/setup-tinytex@v2
+
+      - run: sudo apt-get install -y tidy
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
