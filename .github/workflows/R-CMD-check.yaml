@@ -48,3 +48,9 @@ jobs:
           args: 'c("--as-cran")'
           error-on: '"warning"'
           upload-snapshots: false
+
+      - if: failure()
+        shell: bash
+        run: |
+          cd check && R CMD Rd2pdf --no-preview --force --output=manual.pdf fedstatAPIr.Rcheck/00_pkg_src/fedstatAPIr 2>&1 | tail -40 || true
+          find . -name "*.log" -newer fedstatAPIr.Rcheck/00check.log -exec tail -60 {} \; || true
