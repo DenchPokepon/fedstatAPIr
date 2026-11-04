@@ -10,12 +10,17 @@ on:
 
 jobs:
   R-CMD-check:
-    runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }} (R release)
+    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.config.os }} (R release)
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        config:
+          # The PDF manual is the same on every system; it is built on Linux.
+          # TinyTeX on the Windows runner hangs installing makeindex.
+          - {os: ubuntu-latest, args: 'c("--as-cran")'}
+          - {os: windows-latest, args: 'c("--as-cran", "--no-manual")'}
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
@@ -30,17 +35,14 @@ jobs:
           use-public-rspm: true
 
       # LaTeX for the PDF manual and HTML Tidy for the HTML one, as on CRAN.
-      - uses: r-lib/actions/setup-tinytex@v2
+      - if: runner.os == 'Linux'
+        uses: r-lib/actions/setup-tinytex@v2
 
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y tidy
 
-      # TinyTeX on Windows lacks makeindex, which builds the manual's index.
       - if: runner.os == 'Windows'
-        run: |
-          choco install html-tidy -y --no-progress
-          tlmgr update --self
-          tlmgr install makeindex
+        run: choco install html-tidy -y --no-progress
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
@@ -49,12 +51,6 @@ jobs:
 
       - uses: r-lib/actions/check-r-package@v2
         with:
-          args: 'c("--as-cran")'
+          args: ${{ matrix.config.args }}
           error-on: '"warning"'
           upload-snapshots: false
-
-      - if: failure()
-        shell: bash
-        run: |
-          cd check && R CMD Rd2pdf --no-preview --force --output=manual.pdf fedstatAPIr.Rcheck/00_pkg_src/fedstatAPIr 2>&1 | tail -40 || true
-          find . -name "*.log" -newer fedstatAPIr.Rcheck/00check.log -exec tail -60 {} \; || true
