@@ -39,6 +39,7 @@ jobs:
       - if: runner.os == 'Windows'
         run: |
           choco install html-tidy -y --no-progress
+          tlmgr update --self
           tlmgr install makeindex
 
       - uses: r-lib/actions/setup-r-dependencies@v2
