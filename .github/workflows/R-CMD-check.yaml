@@ -1,4 +1,4 @@
-# CRAN-style check on Linux. Windows is checked locally before submission.
+# CRAN-style checks on the latest R release: Linux and Windows.
 name: R-CMD-check
 
 on:
@@ -10,8 +10,12 @@ on:
 
 jobs:
   R-CMD-check:
-    runs-on: ubuntu-latest
-    name: ubuntu-latest (R release)
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} (R release)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
@@ -28,7 +32,11 @@ jobs:
       # LaTeX for the PDF manual and HTML Tidy for the HTML one, as on CRAN.
       - uses: r-lib/actions/setup-tinytex@v2
 
-      - run: sudo apt-get install -y tidy
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y tidy
+
+      - if: runner.os == 'Windows'
+        run: choco install html-tidy -y --no-progress
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
