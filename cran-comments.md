@@ -10,8 +10,9 @@ deprecated but kept. See NEWS.md.
 
 ## Test environments
 
-* Windows 11 x86_64, R 4.3.2 (local)
 * Ubuntu 26.04 x86_64, R 4.6.2 (GitHub Actions): 0 errors, 0 warnings, 0 notes
+* Windows Server 2022 x64, R 4.6.2 (GitHub Actions): 0 errors, 0 warnings, 0 notes
+* Windows 11 x86_64, R 4.3.2 (local)
 
 ## R CMD check results
 
