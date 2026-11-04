@@ -35,8 +35,11 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y tidy
 
+      # TinyTeX on Windows lacks makeindex, which builds the manual's index.
       - if: runner.os == 'Windows'
-        run: choco install html-tidy -y --no-progress
+        run: |
+          choco install html-tidy -y --no-progress
+          tlmgr install makeindex
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
